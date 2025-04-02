@@ -102,7 +102,7 @@ module.exports = {
         values,
         (err, countResults) => {
           if (err) {
-            console.error("❌ Error fetching total count:", err);
+            console.error("Error fetching total count:", err);
             return res.status(500).json({ error: "Database query failed" });
           }
           const total_count = countResults[0].total_count;
@@ -121,7 +121,7 @@ module.exports = {
             [...values, limit, offset],
             (err, results) => {
               if (err) {
-                console.error("❌ Error fetching properties:", err);
+                console.error("Error fetching properties:", err);
                 return res.status(500).json({ error: "Database query failed" });
               }
               res.status(200).json({
@@ -135,13 +135,134 @@ module.exports = {
         }
       );
     } catch (error) {
-      console.error("❌ Server error:", error);
+      console.error("Server error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   },
   updateStatus: (req, res) => {
-    const { unique_property_id } = req.query;
+    const { property_status, unique_property_id } = req.body;
+    if (!unique_property_id || !property_status) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+    pool.query(
+      `UPDATE properties SET property_status = ? WHERE unique_property_id = ?`,
+      [property_status, unique_property_id],
+      (err, result) => {
+        if (err) {
+          console.error("Error updating status:", err);
+          return res.status(500).json({ error: "Database update failed" });
+        }
+        if (result.affectedRows === 0) {
+          return res.status(404).json({ error: "Property not found" });
+        }
+        res.status(200).json({ message: "Status updated successfully" });
+      }
+    );
   },
-  updateListing: (req, res) => {},
-  deleteListing: (req, res) => {},
+  updateListing: (req, res) => {
+    const { unique_property_id } = req.query;
+    const updatedFields = req.body;
+    if (!unique_property_id || Object.keys(updatedFields).length === 0) {
+      return res
+        .status(400)
+        .json({ error: "Missing unique_property_id or update fields" });
+    }
+    const updateQuery = `
+        UPDATE properties 
+        SET ${Object.keys(updatedFields)
+          .map((field) => `${field} = ?`)
+          .join(", ")}
+        WHERE unique_property_id = ?`;
+    const values = [...Object.values(updatedFields), unique_property_id];
+    pool.query(updateQuery, values, (err, result) => {
+      if (err) {
+        console.error("Error updating listing:", err);
+        return res.status(500).json({ error: "Database update failed" });
+      }
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ error: "Property not found" });
+      }
+      res
+        .status(200)
+        .json({ message: "Property listing updated successfully" });
+    });
+  },
+  deleteListing: (req, res) => {
+    const { unique_property_id } = req.query;
+    if (!unique_property_id) {
+      return res.status(400).json({ error: "Missing unique_property_id" });
+    }
+    pool.getConnection((err, connection) => {
+      if (err) {
+        console.error("Error getting DB connection:", err);
+        return res.status(500).json({ error: "Database connection failed" });
+      }
+      connection.beginTransaction((transactionErr) => {
+        if (transactionErr) {
+          console.error("Transaction error:", transactionErr);
+          return res.status(500).json({ error: "Transaction failed" });
+        }
+        connection.query(
+          `SELECT * FROM properties WHERE unique_property_id = ?`,
+          [unique_property_id],
+          (err, results) => {
+            if (err) {
+              console.error("Error finding property:", err);
+              connection.rollback(() => connection.release());
+              return res.status(500).json({ error: "Database query failed" });
+            }
+            if (results.length === 0) {
+              connection.rollback(() => connection.release());
+              return res.status(404).json({ error: "Property not found" });
+            }
+            const { unique_property_id, property_name } = results[0];
+            connection.query(
+              `INSERT INTO deletedproperties SELECT * FROM properties WHERE unique_property_id = ?`,
+              [unique_property_id],
+              (insertErr) => {
+                if (insertErr) {
+                  console.error(
+                    "Error inserting into deletedproperties:",
+                    insertErr
+                  );
+                  connection.rollback(() => connection.release());
+                  return res
+                    .status(500)
+                    .json({ error: "Failed to archive property" });
+                }
+                connection.query(
+                  `DELETE FROM properties WHERE unique_property_id = ?`,
+                  [unique_property_id],
+                  (deleteErr) => {
+                    if (deleteErr) {
+                      console.error("Error deleting property:", deleteErr);
+                      connection.rollback(() => connection.release());
+                      return res
+                        .status(500)
+                        .json({ error: "Failed to delete property" });
+                    }
+                    connection.commit((commitErr) => {
+                      if (commitErr) {
+                        console.error("Commit failed:", commitErr);
+                        connection.rollback(() => connection.release());
+                        return res
+                          .status(500)
+                          .json({ error: "Transaction commit failed" });
+                      }
+                      connection.release();
+                      res.status(200).json({
+                        message: "Property deleted and archived successfully",
+                        unique_property_id,
+                        property_name,
+                      });
+                    });
+                  }
+                );
+              }
+            );
+          }
+        );
+      });
+    });
+  },
 };
