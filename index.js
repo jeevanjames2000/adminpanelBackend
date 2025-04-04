@@ -13,6 +13,7 @@ app.use(express.json());
 
 // Main Routes
 app.use("/auth/v1", authRoutes);
+
 app.use("/api", Routes);
 app.use("/user", userRoutes);
 app.use("/listings", listingRoutes);
