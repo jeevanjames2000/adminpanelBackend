@@ -10,4 +10,12 @@ module.exports = {
       res.status(200).json(results);
     });
   },
+  getAllLocalities: (req, res) => {
+    pool.query("SELCT * from cities", (err, results) => {
+      if (err) {
+        return res.status(500).json({ error: "Query failed" });
+      }
+      res.status(200).json(results);
+    });
+  },
 };
