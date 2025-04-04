@@ -4,6 +4,7 @@ const router = express.Router();
 const listingController = require("../controllers/listingsController");
 
 router.get("/getAllListings", listingController.getAllProperties);
+router.get("/getAllPropertiesByType", listingController.getAllPropertiesByType);
 router.get("/getListingsByLimit", listingController.getListingsByLimit);
 router.get("/getListingsFilters", listingController.getListingsFilters);
 router.get("/getAllLeads", listingController.getAllLeadsByFilter);

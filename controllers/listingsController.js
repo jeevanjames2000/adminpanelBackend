@@ -27,6 +27,50 @@ module.exports = {
       res.status(500).json({ error: "Internal server error" });
     }
   },
+  getAllPropertiesByType: (req, res) => {
+    try {
+      const { property_status, property_for, property_in } = req.query;
+      let conditions = [];
+      let values = [];
+      if (property_status) {
+        conditions.push("property_status = ?");
+        values.push(property_status);
+      }
+      if (property_for) {
+        conditions.push("property_for = ?");
+        values.push(property_for);
+      }
+      if (property_in) {
+        conditions.push("property_in = ?");
+        values.push(property_in);
+      }
+      const whereClause = conditions.length
+        ? `WHERE ${conditions.join(" AND ")}`
+        : "";
+      const countQuery = `SELECT COUNT(*) AS total_count FROM properties ${whereClause}`;
+      pool.query(countQuery, values, (err, countResults) => {
+        if (err) {
+          console.error("Error fetching total count:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        const total_count = countResults[0].total_count;
+        const query = `SELECT * FROM properties ${whereClause} ORDER BY created_date DESC`;
+        pool.query(query, values, (err, results) => {
+          if (err) {
+            console.error("Error fetching properties:", err);
+            return res.status(500).json({ error: "Database query failed" });
+          }
+          res.status(200).json({
+            total_count,
+            properties: results,
+          });
+        });
+      });
+    } catch (error) {
+      console.error("Server error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  },
   getListingsByLimit: (req, res) => {
     try {
       const page = parseInt(req.query.page) || 1;
@@ -280,7 +324,6 @@ module.exports = {
         `;
       const values = property_for ? [property_for] : [];
       const [result] = await pool.promise().query(query, values);
-
       if (result.length === 0) {
         return res.status(404).json({
           message: `No results found for: ${property_for || "All"}`,
@@ -288,7 +331,6 @@ module.exports = {
           data: [],
         });
       }
-
       res.status(200).json({
         message: "Data fetched successfully",
         count: result.length,
