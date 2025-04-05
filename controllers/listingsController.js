@@ -32,6 +32,7 @@ module.exports = {
       const { property_status, property_for, property_in } = req.query;
       let conditions = [];
       let values = [];
+
       if (property_status) {
         conditions.push("property_status = ?");
         values.push(property_status);
@@ -44,26 +45,54 @@ module.exports = {
         conditions.push("property_in = ?");
         values.push(property_in);
       }
+
       const whereClause = conditions.length
         ? `WHERE ${conditions.join(" AND ")}`
         : "";
+
       const countQuery = `SELECT COUNT(*) AS total_count FROM properties ${whereClause}`;
       pool.query(countQuery, values, (err, countResults) => {
         if (err) {
           console.error("Error fetching total count:", err);
           return res.status(500).json({ error: "Database query failed" });
         }
+
         const total_count = countResults[0].total_count;
         const query = `SELECT * FROM properties ${whereClause} ORDER BY created_date DESC`;
-        pool.query(query, values, (err, results) => {
+
+        pool.query(query, values, async (err, results) => {
           if (err) {
             console.error("Error fetching properties:", err);
             return res.status(500).json({ error: "Database query failed" });
           }
-          res.status(200).json({
-            total_count,
-            properties: results,
-          });
+
+          try {
+            const propertiesWithUsers = await Promise.all(
+              results.map((property) => {
+                return new Promise((resolve, reject) => {
+                  const userQuery =
+                    "SELECT name, email, mobile, photo, user_type FROM users WHERE id = ?";
+                  pool.query(
+                    userQuery,
+                    [property.user_id],
+                    (err, userResults) => {
+                      if (err) return reject(err);
+                      const user = userResults[0] || null;
+                      resolve({ ...property, user });
+                    }
+                  );
+                });
+              })
+            );
+
+            res.status(200).json({
+              total_count,
+              properties: propertiesWithUsers,
+            });
+          } catch (userErr) {
+            console.error("Error fetching user data:", userErr);
+            return res.status(500).json({ error: "Failed to fetch user data" });
+          }
         });
       });
     } catch (error) {
@@ -71,6 +100,7 @@ module.exports = {
       res.status(500).json({ error: "Internal server error" });
     }
   },
+
   getListingsByLimit: (req, res) => {
     try {
       const page = parseInt(req.query.page) || 1;
@@ -95,7 +125,7 @@ module.exports = {
             });
           }
           pool.query(
-            `SELECT * FROM properties ORDER BY created_date DESC LIMIT ? OFFSET ?`,
+            `SELECT * FROM properties ORDER BY id DESC LIMIT ? OFFSET ?`,
             [limit, offset],
             (err, results) => {
               if (err) {

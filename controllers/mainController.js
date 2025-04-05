@@ -25,10 +25,7 @@ module.exports = {
       return res.status(400).json({ error: "Search query is required" });
     }
     const searchTerm = `${query.toLowerCase()}%`;
-    if (cache.has(searchTerm)) {
-      console.log("Serving from cache");
-      return res.status(200).json(cache.get(searchTerm));
-    }
+
     const sql = `
         SELECT * FROM city_localities 
         WHERE LOWER(city) LIKE LOWER(?) OR LOWER(locality) LIKE LOWER(?) 
@@ -40,11 +37,7 @@ module.exports = {
         console.error("Database error:", err);
         return res.status(500).json({ error: "Query failed" });
       }
-      cache.set(searchTerm, results);
-      if (cache.size > CACHE_LIMIT) {
-        const firstKey = cache.keys().next().value;
-        cache.delete(firstKey);
-      }
+
       res.status(200).json(results);
     });
   },
