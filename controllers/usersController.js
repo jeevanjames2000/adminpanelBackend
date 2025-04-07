@@ -1,4 +1,8 @@
 const pool = require("../config/db");
+const bcrypt = require("bcrypt");
+const moment = require("moment");
+const currentDate = moment().format("YYYY-MM-DD");
+const currentTime = moment().format("HH:mm:ss");
 module.exports = {
   getAllUsersCount: async (req, res) => {
     pool.query(
@@ -40,5 +44,239 @@ module.exports = {
           .json({ success: true, count: userCount, data: results });
       });
     });
+  },
+  createUser: async (req, res) => {
+    const {
+      name,
+      mobile,
+      email,
+      designation,
+      password,
+      city,
+      pincode,
+      state,
+      user_type,
+      created_by,
+      created_userID,
+    } = req.body;
+    console.log("user_type: ", user_type);
+    if (!created_userID) {
+      return res.status(400).json({ message: "User ID is required" });
+    }
+    try {
+      const creatorCheckQuery = `SELECT id FROM users WHERE id = ?`;
+      pool.query(
+        creatorCheckQuery,
+        [created_userID],
+        (creatorErr, creatorResults) => {
+          if (creatorErr) {
+            console.error("Error checking creator ID:", creatorErr);
+            return res
+              .status(500)
+              .json({ message: "Database error while checking creator ID" });
+          }
+          if (creatorResults.length === 0) {
+            return res.status(403).json({ message: "User id Not found" });
+          }
+          const checkQuery = `SELECT * FROM users WHERE name = ? AND user_type = ?`;
+          pool.query(checkQuery, [name, user_type], async (err, results) => {
+            if (err) {
+              console.error("Error checking for existing user:", err);
+              return res
+                .status(500)
+                .json({ message: "Database error while checking user" });
+            }
+            if (results.length > 0) {
+              return res.status(409).json({
+                message: "User with the same name and user_type already exists",
+              });
+            }
+            const hashedPassword = await bcrypt.hash(password, 10);
+            const currentDate = new Date().toISOString().slice(0, 10);
+            const currentTime = new Date().toTimeString().slice(0, 8);
+            const insertQuery = `
+          INSERT INTO users
+          (name, mobile, email, designation, password, city, pincode, state, user_type, created_by,
+           created_date, created_time, status, created_userID)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `;
+            const values = [
+              name,
+              mobile,
+              email,
+              designation,
+              hashedPassword,
+              city,
+              pincode,
+              state,
+              user_type,
+              created_by,
+              currentDate,
+              currentTime,
+              0,
+              created_userID,
+            ];
+            pool.query(insertQuery, values, (insertErr, result) => {
+              if (insertErr) {
+                console.error("Error inserting user:", insertErr);
+                return res
+                  .status(500)
+                  .json({ message: "Database error while inserting user" });
+              }
+              res.status(201).json({
+                message: "User registered successfully",
+                userId: result.insertId,
+              });
+            });
+          });
+        }
+      );
+    } catch (err) {
+      console.error("Server error:", err);
+      res.status(500).json({ message: "Server error" });
+    }
+  },
+  updateUser: async (req, res) => {
+    const {
+      id,
+      name,
+      mobile,
+      email,
+      designation,
+      city,
+      pincode,
+      state,
+      user_type,
+      status,
+      created_userID,
+    } = req.body;
+    if (!id) {
+      return res
+        .status(400)
+        .json({ message: "User ID is required for update" });
+    }
+    try {
+      const duplicateCheckQuery = `
+      SELECT * FROM users WHERE name = ? AND user_type = ? AND id != ?
+    `;
+      pool.query(
+        duplicateCheckQuery,
+        [name, user_type, id],
+        async (err, results) => {
+          if (err) {
+            console.error("Duplicate check failed:", err);
+            return res
+              .status(500)
+              .json({ message: "Database error during duplicate check" });
+          }
+          if (results.length > 0) {
+            return res.status(409).json({
+              message:
+                "Another user with the same name and user_type already exists",
+            });
+          }
+
+          const updateQuery = `
+        UPDATE users
+        SET name = ?, mobile = ?, email = ?, designation = ?,  city = ?, pincode = ?, state = ?, user_type = ?, updated_date = ?, updated_time = ?,status=?,created_userID= ?
+        WHERE id = ?
+      `;
+          const values = [
+            name,
+            mobile,
+            email,
+            designation,
+            city,
+            pincode,
+            state,
+            user_type,
+            currentDate,
+            currentTime,
+            status,
+            created_userID,
+            id,
+          ];
+          pool.query(updateQuery, values, (updateErr, result) => {
+            if (updateErr) {
+              console.error("Update failed:", updateErr);
+              return res
+                .status(500)
+                .json({ message: "Database error during update" });
+            }
+            res.status(200).json({ message: "User updated successfully" });
+          });
+        }
+      );
+    } catch (err) {
+      console.error("Update error:", err);
+      res.status(500).json({ message: "Server error" });
+    }
+  },
+  deleteUser: async (req, res) => {
+    const { id } = req.body;
+    if (!id) {
+      return res
+        .status(400)
+        .json({ message: "User ID is required for deletion" });
+    }
+    const checkQuery = `SELECT id FROM users WHERE id = ?`;
+    pool.query(checkQuery, [id], (err, results) => {
+      if (err) {
+        console.error("Error checking user:", err);
+        return res
+          .status(500)
+          .json({ message: "Database error while checking user" });
+      }
+      if (results.length === 0) {
+        return res.status(404).json({ message: "User not found" });
+      }
+      const deleteQuery = `DELETE FROM users WHERE id = ?`;
+      pool.query(deleteQuery, [id], (err, result) => {
+        if (err) {
+          console.error("Error deleting user:", err);
+          return res
+            .status(500)
+            .json({ message: "Database error during user deletion" });
+        }
+        res.status(200).json({ message: "User deleted successfully" });
+      });
+    });
+  },
+  getAllEmp: (req, res) => {
+    const { userID } = req.params;
+    try {
+      const query = `
+      SELECT user_type, COUNT(*) AS count 
+      FROM users 
+      WHERE created_userID = ? 
+      GROUP BY user_type
+    `;
+
+      pool.query(query, [userID], (err, results) => {
+        if (err) {
+          console.error("Error fetching grouped users:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+
+        const employeesQuery = `
+        SELECT * FROM users WHERE created_userID = ?
+      `;
+
+        pool.query(employeesQuery, [userID], (empErr, empResults) => {
+          if (empErr) {
+            console.error("Error fetching employees:", empErr);
+            return res.status(500).json({ error: "Database query failed" });
+          }
+
+          res.status(200).json({
+            groupedCount: results,
+            employees: empResults,
+          });
+        });
+      });
+    } catch (error) {
+      console.error("Unexpected server error:", error);
+      res.status(500).json({ error: "Server error" });
+    }
   },
 };

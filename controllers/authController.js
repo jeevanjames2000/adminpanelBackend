@@ -1,6 +1,7 @@
 const pool = require("../config/db");
 const jwt = require("jsonwebtoken");
-const JWT_SECRET = process.env.JWT_SECRET || "your_secret_key";
+const JWT_SECRET = process.env.JWT_SECRET;
+const bcrypt = require("bcrypt");
 module.exports = {
   login: async (req, res) => {
     try {
@@ -38,5 +39,58 @@ module.exports = {
       console.error("❌ Login error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
+  },
+  loginAgents: (req, res) => {
+    const { mobile, password } = req.body;
+    if (!mobile || !password) {
+      return res
+        .status(400)
+        .json({ message: "Mobile and password are required" });
+    }
+
+    const query = `SELECT * FROM users WHERE mobile = ?`;
+
+    pool.query(query, [mobile], async (err, results) => {
+      if (err) {
+        console.error("Database error during login:", err);
+        return res.status(500).json({ message: "Database error" });
+      }
+      if (results.length === 0) {
+        return res.status(401).json({ message: "Invalid mobile or password" });
+      }
+
+      const user = results[0];
+
+      if (!user.password) {
+        return res.status(500).json({ message: "Password not found for user" });
+      }
+
+      try {
+        const isPasswordValid = await bcrypt.compare(password, user.password);
+        if (!isPasswordValid) {
+          return res
+            .status(401)
+            .json({ message: "Invalid mobile or password" });
+        }
+
+        res.status(200).json({
+          message: "Login successful",
+          user: {
+            user_id: user.id,
+            mobile: user.mobile,
+            name: user.name,
+            user_type: user.user_type,
+            status: user.status,
+            created_userID: user.created_userID,
+            created_by: user.created_by,
+          },
+        });
+      } catch (compareError) {
+        console.error("Bcrypt compare error:", compareError);
+        return res
+          .status(500)
+          .json({ message: "Error while verifying password" });
+      }
+    });
   },
 };

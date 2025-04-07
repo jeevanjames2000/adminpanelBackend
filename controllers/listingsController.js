@@ -29,78 +29,125 @@ module.exports = {
   },
   getAllPropertiesByType: (req, res) => {
     try {
-      const { property_status, property_for, property_in } = req.query;
+      const {
+        property_status,
+        property_for,
+        property_in,
+        sub_type,
+        search = "",
+        page = 1,
+      } = req.query;
       let conditions = [];
       let values = [];
 
       if (property_status) {
-        conditions.push("property_status = ?");
+        conditions.push("p.property_status = ?");
         values.push(property_status);
       }
+      if (sub_type) {
+        conditions.push("p.sub_type= ?");
+        values.push(sub_type);
+      }
       if (property_for) {
-        conditions.push("property_for = ?");
+        conditions.push("p.property_for = ?");
         values.push(property_for);
       }
       if (property_in) {
-        conditions.push("property_in = ?");
+        conditions.push("p.property_in = ?");
         values.push(property_in);
       }
 
+      const limit = 15;
+      const offset = (parseInt(page) - 1) * limit;
+
+      let searchCondition = "";
+      let searchValues = [];
+
+      if (search) {
+        searchCondition = `
+        AND (
+          p.unique_property_id LIKE ? OR
+          p.property_name LIKE ? OR
+          p.google_address LIKE ? OR
+          u.name LIKE ? OR
+          u.mobile LIKE ?
+        )
+      `;
+        const searchValue = `%${search}%`;
+        searchValues = [
+          searchValue,
+          searchValue,
+          searchValue,
+          searchValue,
+          searchValue,
+        ];
+      }
+      conditions.push("p.property_name IS NOT NULL");
+      conditions.push("p.description IS NOT NULL");
       const whereClause = conditions.length
         ? `WHERE ${conditions.join(" AND ")}`
-        : "";
+        : "WHERE 1=1";
 
-      const countQuery = `SELECT COUNT(*) AS total_count FROM properties ${whereClause}`;
-      pool.query(countQuery, values, (err, countResults) => {
-        if (err) {
-          console.error("Error fetching total count:", err);
-          return res.status(500).json({ error: "Database query failed" });
-        }
+      const countQuery = `
+  SELECT COUNT(*) AS total_count
+  FROM properties p
+  LEFT JOIN users u ON p.user_id = u.id
+  ${whereClause} ${searchCondition}
+`;
 
-        const total_count = countResults[0].total_count;
-        const query = `SELECT * FROM properties ${whereClause} ORDER BY created_date DESC`;
-
-        pool.query(query, values, async (err, results) => {
+      pool.query(
+        countQuery,
+        [...values, ...searchValues],
+        (err, countResults) => {
           if (err) {
-            console.error("Error fetching properties:", err);
+            console.error("Error fetching total count:", err);
             return res.status(500).json({ error: "Database query failed" });
           }
 
-          try {
-            const propertiesWithUsers = await Promise.all(
-              results.map((property) => {
-                return new Promise((resolve, reject) => {
-                  const userQuery =
-                    "SELECT name, email, mobile, photo, user_type FROM users WHERE id = ?";
-                  pool.query(
-                    userQuery,
-                    [property.user_id],
-                    (err, userResults) => {
-                      if (err) return reject(err);
-                      const user = userResults[0] || null;
-                      resolve({ ...property, user });
-                    }
-                  );
-                });
-              })
-            );
+          const total_count = countResults[0].total_count;
+
+          const query = `
+        SELECT p.*, u.name, u.email, u.mobile, u.photo, u.user_type
+        FROM properties p
+        LEFT JOIN users u ON p.user_id = u.id
+        ${whereClause} ${searchCondition}
+        ORDER BY p.created_date DESC
+        LIMIT ? OFFSET ?
+      `;
+
+          const finalValues = [...values, ...searchValues, limit, offset];
+
+          pool.query(query, finalValues, (err, results) => {
+            if (err) {
+              console.error("Error fetching properties:", err);
+              return res.status(500).json({ error: "Database query failed" });
+            }
+
+            const properties = results.map((row) => {
+              const { name, email, mobile, photo, user_type, ...property } =
+                row;
+              return {
+                ...property,
+                user: { name, email, mobile, photo, user_type },
+              };
+            });
+            const currentCount = properties.length;
 
             res.status(200).json({
               total_count,
-              properties: propertiesWithUsers,
+              current_page: parseInt(page),
+              currentCount: currentCount,
+              total_pages: Math.ceil(total_count / limit),
+              properties,
             });
-          } catch (userErr) {
-            console.error("Error fetching user data:", userErr);
-            return res.status(500).json({ error: "Failed to fetch user data" });
-          }
-        });
-      });
+          });
+        }
+      );
     } catch (error) {
       console.error("Server error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   },
-
   getListingsByLimit: (req, res) => {
     try {
       const page = parseInt(req.query.page) || 1;
@@ -340,7 +387,7 @@ module.exports = {
     });
   },
   getAllLeadsByFilter: async (req, res) => {
-    const { property_for } = req.query;
+    const { property_for, search = "" } = req.query;
     try {
       const query = `
             SELECT sp.id, sp.property_id, sp.user_id, sp.name, sp.mobile, sp.email, 
@@ -369,6 +416,34 @@ module.exports = {
     } catch (error) {
       console.error("Error fetching leads:", error);
       res.status(500).json({ message: "Internal Server Error" });
+    }
+  },
+  getAllFloorPlans: async (req, res) => {
+    try {
+      const { unique_property_id } = req.params;
+
+      if (!unique_property_id) {
+        return res
+          .status(400)
+          .json({ error: "unique_property_id is required" });
+      }
+
+      const query = `
+      SELECT * FROM properties_floorplans_gallery 
+      WHERE property_id = ?
+    `;
+
+      pool.query(query, [unique_property_id], (err, results) => {
+        if (err) {
+          console.error("Error fetching floor plans:", err);
+          return res.status(500).json({ error: "Internal server error" });
+        }
+
+        return res.status(200).json(results);
+      });
+    } catch (error) {
+      console.error("Unexpected error:", error);
+      return res.status(500).json({ error: "Internal server error" });
     }
   },
 };
