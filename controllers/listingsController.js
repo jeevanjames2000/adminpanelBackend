@@ -37,6 +37,7 @@ module.exports = {
         search = "",
         page = 1,
       } = req.query;
+
       let conditions = [];
       let values = [];
 
@@ -45,7 +46,7 @@ module.exports = {
         values.push(property_status);
       }
       if (sub_type) {
-        conditions.push("p.sub_type= ?");
+        conditions.push("p.sub_type = ?");
         values.push(sub_type);
       }
       if (property_for) {
@@ -57,23 +58,28 @@ module.exports = {
         values.push(property_in);
       }
 
-      const limit = 15;
-      const offset = (parseInt(page) - 1) * limit;
+      // Mandatory conditions
+      conditions.push("p.property_name IS NOT NULL");
+      conditions.push("p.description IS NOT NULL");
 
+      const whereClause = conditions.length
+        ? `WHERE ${conditions.join(" AND ")}`
+        : "WHERE 1=1";
+
+      // Search logic
       let searchCondition = "";
       let searchValues = [];
-
       if (search) {
+        const searchValue = `%${search.toLowerCase()}%`;
         searchCondition = `
         AND (
-          p.unique_property_id LIKE ? OR
-          p.property_name LIKE ? OR
-          p.google_address LIKE ? OR
-          u.name LIKE ? OR
+          LOWER(p.unique_property_id) LIKE ? OR
+          LOWER(p.property_name) LIKE ? OR
+          LOWER(p.google_address) LIKE ? OR
+          LOWER(u.name) LIKE ? OR
           u.mobile LIKE ?
         )
       `;
-        const searchValue = `%${search}%`;
         searchValues = [
           searchValue,
           searchValue,
@@ -82,18 +88,20 @@ module.exports = {
           searchValue,
         ];
       }
-      conditions.push("p.property_name IS NOT NULL");
-      conditions.push("p.description IS NOT NULL");
-      const whereClause = conditions.length
-        ? `WHERE ${conditions.join(" AND ")}`
-        : "WHERE 1=1";
 
+      // Pagination
+      const limit = 15;
+      const pageNumber = parseInt(page);
+      const offset =
+        (isNaN(pageNumber) || pageNumber < 1 ? 0 : pageNumber - 1) * limit;
+
+      // Count query
       const countQuery = `
-  SELECT COUNT(*) AS total_count
-  FROM properties p
-  LEFT JOIN users u ON p.user_id = u.id
-  ${whereClause} ${searchCondition}
-`;
+      SELECT COUNT(*) AS total_count
+      FROM properties p
+      LEFT JOIN users u ON p.user_id = u.id
+      ${whereClause} ${searchCondition}
+    `;
 
       pool.query(
         countQuery,
@@ -106,14 +114,15 @@ module.exports = {
 
           const total_count = countResults[0].total_count;
 
+          // Data query
           const query = `
-        SELECT p.*, u.name, u.email, u.mobile, u.photo, u.user_type
-        FROM properties p
-        LEFT JOIN users u ON p.user_id = u.id
-        ${whereClause} ${searchCondition}
-        ORDER BY p.created_date DESC
-        LIMIT ? OFFSET ?
-      `;
+          SELECT p.*, u.name, u.email, u.mobile, u.photo, u.user_type
+          FROM properties p
+          LEFT JOIN users u ON p.user_id = u.id
+          ${whereClause} ${searchCondition}
+          ORDER BY p.created_date DESC
+          LIMIT ? OFFSET ?
+        `;
 
           const finalValues = [...values, ...searchValues, limit, offset];
 
@@ -131,12 +140,13 @@ module.exports = {
                 user: { name, email, mobile, photo, user_type },
               };
             });
+
             const currentCount = properties.length;
 
             res.status(200).json({
               total_count,
-              current_page: parseInt(page),
-              currentCount: currentCount,
+              current_page: pageNumber,
+              currentCount,
               total_pages: Math.ceil(total_count / limit),
               properties,
             });
@@ -148,6 +158,7 @@ module.exports = {
       res.status(500).json({ error: "Internal server error" });
     }
   },
+
   getListingsByLimit: (req, res) => {
     try {
       const page = parseInt(req.query.page) || 1;
