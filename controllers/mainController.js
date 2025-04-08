@@ -20,24 +20,23 @@ module.exports = {
     });
   },
   searchLocalities: (req, res) => {
-    const { query } = req.query;
-    if (!query) {
-      return res.status(400).json({ error: "Search query is required" });
+    const { city, query } = req.query;
+    if (!city || !query) {
+      return res
+        .status(400)
+        .json({ error: "City and search query are required" });
     }
     const searchTerm = `${query.toLowerCase()}%`;
-
     const sql = `
-        SELECT * FROM city_localities 
-        WHERE LOWER(city) LIKE LOWER(?) OR LOWER(locality) LIKE LOWER(?) 
-        ORDER BY CHAR_LENGTH(city), CHAR_LENGTH(locality) 
-        LIMIT 20
-    `;
-    pool.query(sql, [searchTerm, searchTerm], (err, results) => {
+    SELECT locality FROM city_localities 
+    WHERE LOWER(city) = LOWER(?) AND LOWER(locality) LIKE ?
+    ORDER BY CHAR_LENGTH(locality)
+  `;
+    pool.query(sql, [city, searchTerm], (err, results) => {
       if (err) {
         console.error("Database error:", err);
         return res.status(500).json({ error: "Query failed" });
       }
-
       res.status(200).json(results);
     });
   },

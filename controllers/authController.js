@@ -16,7 +16,7 @@ module.exports = {
         [mobile],
         (err, results) => {
           if (err) {
-            console.error("❌ Database query error:", err);
+            console.error("Database query error:", err);
             return res.status(500).json({ error: "Internal server error" });
           }
           if (results.length === 0) {
@@ -36,12 +36,13 @@ module.exports = {
         }
       );
     } catch (error) {
-      console.error("❌ Login error:", error);
+      console.error("Login error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   },
   loginAgents: (req, res) => {
     const { mobile, password } = req.body;
+    console.log("password: ", password);
     if (!mobile || !password) {
       return res
         .status(400)
@@ -51,6 +52,7 @@ module.exports = {
     const query = `SELECT * FROM users WHERE mobile = ?`;
 
     pool.query(query, [mobile], async (err, results) => {
+      console.log("results: ", results);
       if (err) {
         console.error("Database error during login:", err);
         return res.status(500).json({ message: "Database error" });
@@ -67,11 +69,19 @@ module.exports = {
 
       try {
         const isPasswordValid = await bcrypt.compare(password, user.password);
+        console.log("isPasswordValid: ", isPasswordValid);
         if (!isPasswordValid) {
           return res
             .status(401)
             .json({ message: "Invalid mobile or password" });
         }
+        const token = jwt.sign(
+          { id: user.id, mobile: user.mobile },
+          JWT_SECRET,
+          {
+            expiresIn: "7h",
+          }
+        );
 
         res.status(200).json({
           message: "Login successful",
@@ -80,10 +90,15 @@ module.exports = {
             mobile: user.mobile,
             name: user.name,
             user_type: user.user_type,
+            email: user.email,
+            state: user.state,
+            city: user.city,
+            pincode: user.pincode,
             status: user.status,
             created_userID: user.created_userID,
             created_by: user.created_by,
           },
+          token,
         });
       } catch (compareError) {
         console.error("Bcrypt compare error:", compareError);

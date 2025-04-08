@@ -33,21 +33,50 @@ module.exports = {
         property_status,
         property_for,
         property_in,
+        property_cost,
         sub_type,
+        bedrooms,
+        priceFilter,
         search = "",
         page = 1,
       } = req.query;
 
       let conditions = [];
       let values = [];
+      let orderClause = "ORDER BY p.created_date DESC";
+
+      if (priceFilter === "Price: Low to High") {
+        orderClause = "ORDER BY CAST(p.property_cost AS DECIMAL) ASC";
+      } else if (priceFilter === "Price: High to Low") {
+        orderClause = "ORDER BY CAST(p.property_cost AS DECIMAL) DESC";
+      } else if (priceFilter === "Newest First") {
+        orderClause = "ORDER BY p.created_date DESC";
+      }
 
       if (property_status) {
         conditions.push("p.property_status = ?");
         values.push(property_status);
       }
+      if (property_cost) {
+        const costStr = String(property_cost).trim();
+        if (costStr === "50") {
+          conditions.push("CAST(p.property_cost AS DECIMAL) BETWEEN ? AND ?");
+          values.push(10000, 5000000);
+        } else if (costStr === "50-75") {
+          conditions.push("CAST(p.property_cost AS DECIMAL) BETWEEN ? AND ?");
+          values.push(5000000, 7500000);
+        } else if (costStr === "75" || costStr === "75+") {
+          conditions.push("CAST(p.property_cost AS DECIMAL) > ?");
+          values.push(7500000);
+        }
+      }
       if (sub_type) {
         conditions.push("p.sub_type = ?");
         values.push(sub_type);
+      }
+      if (bedrooms) {
+        conditions.push("p.bedrooms = ?");
+        values.push(bedrooms);
       }
       if (property_for) {
         conditions.push("p.property_for = ?");
@@ -57,25 +86,25 @@ module.exports = {
         conditions.push("p.property_in = ?");
         values.push(property_in);
       }
-
-      // Mandatory conditions
       conditions.push("p.property_name IS NOT NULL");
       conditions.push("p.description IS NOT NULL");
-
       const whereClause = conditions.length
         ? `WHERE ${conditions.join(" AND ")}`
         : "WHERE 1=1";
-
-      // Search logic
       let searchCondition = "";
       let searchValues = [];
       if (search) {
-        const searchValue = `%${search.toLowerCase()}%`;
+        const searchLower = search.toLowerCase();
+        const searchValue = `%${searchLower}%`;
+        const searchStartsWith = `${searchLower}%`;
         searchCondition = `
         AND (
           LOWER(p.unique_property_id) LIKE ? OR
           LOWER(p.property_name) LIKE ? OR
           LOWER(p.google_address) LIKE ? OR
+          LOWER(p.google_address) LIKE ? OR
+          LOWER(p.location_id) LIKE ? OR
+          LOWER(p.location_id) LIKE ? OR
           LOWER(u.name) LIKE ? OR
           u.mobile LIKE ?
         )
@@ -84,25 +113,23 @@ module.exports = {
           searchValue,
           searchValue,
           searchValue,
+          searchStartsWith,
+          searchValue,
+          searchStartsWith,
           searchValue,
           searchValue,
         ];
       }
-
-      // Pagination
       const limit = 15;
       const pageNumber = parseInt(page);
       const offset =
         (isNaN(pageNumber) || pageNumber < 1 ? 0 : pageNumber - 1) * limit;
-
-      // Count query
       const countQuery = `
       SELECT COUNT(*) AS total_count
       FROM properties p
       LEFT JOIN users u ON p.user_id = u.id
       ${whereClause} ${searchCondition}
     `;
-
       pool.query(
         countQuery,
         [...values, ...searchValues],
@@ -111,27 +138,22 @@ module.exports = {
             console.error("Error fetching total count:", err);
             return res.status(500).json({ error: "Database query failed" });
           }
-
           const total_count = countResults[0].total_count;
-
-          // Data query
           const query = `
-          SELECT p.*, u.name, u.email, u.mobile, u.photo, u.user_type
-          FROM properties p
-          LEFT JOIN users u ON p.user_id = u.id
-          ${whereClause} ${searchCondition}
-          ORDER BY p.created_date DESC
-          LIMIT ? OFFSET ?
-        `;
+  SELECT p.*, u.name, u.email, u.mobile, u.photo, u.user_type
+  FROM properties p
+  LEFT JOIN users u ON p.user_id = u.id
+  ${whereClause} ${searchCondition}
+  ${orderClause}
+  LIMIT ? OFFSET ?
+`;
 
           const finalValues = [...values, ...searchValues, limit, offset];
-
           pool.query(query, finalValues, (err, results) => {
             if (err) {
               console.error("Error fetching properties:", err);
               return res.status(500).json({ error: "Database query failed" });
             }
-
             const properties = results.map((row) => {
               const { name, email, mobile, photo, user_type, ...property } =
                 row;
@@ -140,9 +162,7 @@ module.exports = {
                 user: { name, email, mobile, photo, user_type },
               };
             });
-
             const currentCount = properties.length;
-
             res.status(200).json({
               total_count,
               current_page: pageNumber,
@@ -158,7 +178,6 @@ module.exports = {
       res.status(500).json({ error: "Internal server error" });
     }
   },
-
   getListingsByLimit: (req, res) => {
     try {
       const page = parseInt(req.query.page) || 1;
@@ -432,29 +451,42 @@ module.exports = {
   getAllFloorPlans: async (req, res) => {
     try {
       const { unique_property_id } = req.params;
-
       if (!unique_property_id) {
         return res
           .status(400)
           .json({ error: "unique_property_id is required" });
       }
-
       const query = `
       SELECT * FROM properties_floorplans_gallery 
       WHERE property_id = ?
     `;
-
       pool.query(query, [unique_property_id], (err, results) => {
         if (err) {
           console.error("Error fetching floor plans:", err);
           return res.status(500).json({ error: "Internal server error" });
         }
-
         return res.status(200).json(results);
       });
     } catch (error) {
       console.error("Unexpected error:", error);
       return res.status(500).json({ error: "Internal server error" });
+    }
+  },
+  getLatestProperties: async (req, res) => {
+    try {
+      pool.query("SELECT * FROM properties WHERE created_date ");
+    } catch (error) {
+      console.log(error);
+    }
+  },
+  getPropertyImages: async (req, res) => {
+    const { user_id, unique_property_id } = req.query;
+    try {
+      pool.query(
+        "SELECT * FROM properties_gallery WHERE property_id = unique_property_id"
+      );
+    } catch (error) {
+      console.log(error);
     }
   },
 };
