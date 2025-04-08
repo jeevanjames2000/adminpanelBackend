@@ -12,6 +12,7 @@ router.get(
   "/getAllFloorPlans/:unique_property_id",
   listingController.getAllFloorPlans
 );
+router.get("/getLatestProperties", listingController.getLatestProperties);
 router.post("/updateListing", listingController.updateListing);
 router.post("/updateStatus", listingController.updateStatus);
 router.delete("/deleteListing", listingController.deleteListing);

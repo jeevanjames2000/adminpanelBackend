@@ -474,19 +474,29 @@ module.exports = {
   },
   getLatestProperties: async (req, res) => {
     try {
-      pool.query("SELECT * FROM properties WHERE created_date ");
-    } catch (error) {
-      console.log(error);
-    }
-  },
-  getPropertyImages: async (req, res) => {
-    const { user_id, unique_property_id } = req.query;
-    try {
       pool.query(
-        "SELECT * FROM properties_gallery WHERE property_id = unique_property_id"
+        `SELECT COUNT(*) AS total_count FROM properties`,
+        (err, countResults) => {
+          if (err) {
+            console.error("Error fetching total count:", err);
+            return res.status(500).json({ error: "Database query failed" });
+          }
+          const total_count = countResults[0].total_count;
+          pool.query(
+            `SELECT * FROM properties ORDER BY created_date DESC, id DESC  LIMIT 10`,
+            (err, results) => {
+              if (err) {
+                console.error("Error fetching properties:", err);
+                return res.status(500).json({ error: "Database query failed" });
+              }
+              res.status(200).json({ total_count, properties: results });
+            }
+          );
+        }
       );
     } catch (error) {
-      console.log(error);
+      console.error("Error fetching latest properties:", error);
+      res.status(500).json({ message: "Internal Server Error" });
     }
   },
 };
