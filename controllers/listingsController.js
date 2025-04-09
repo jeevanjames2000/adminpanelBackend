@@ -31,6 +31,7 @@ module.exports = {
     try {
       const {
         property_status,
+        occupancy,
         property_for,
         property_in,
         property_cost,
@@ -40,22 +41,23 @@ module.exports = {
         search = "",
         page = 1,
       } = req.query;
-
       let conditions = [];
       let values = [];
-      let orderClause = "ORDER BY p.created_date DESC";
-
+      let orderClause = "ORDER BY id DESC";
       if (priceFilter === "Price: Low to High") {
         orderClause = "ORDER BY CAST(p.property_cost AS DECIMAL) ASC";
       } else if (priceFilter === "Price: High to Low") {
         orderClause = "ORDER BY CAST(p.property_cost AS DECIMAL) DESC";
       } else if (priceFilter === "Newest First") {
-        orderClause = "ORDER BY p.created_date DESC";
+        orderClause = "ORDER BY id DESC";
       }
-
       if (property_status) {
         conditions.push("p.property_status = ?");
         values.push(property_status);
+      }
+      if (occupancy) {
+        conditions.push("p.occupancy = ?");
+        values.push(occupancy);
       }
       if (property_cost) {
         const costStr = String(property_cost).trim();
@@ -104,7 +106,6 @@ module.exports = {
           LOWER(p.google_address) LIKE ? OR
           LOWER(p.google_address) LIKE ? OR
           LOWER(p.location_id) LIKE ? OR
-          LOWER(p.location_id) LIKE ? OR
           LOWER(u.name) LIKE ? OR
           u.mobile LIKE ?
         )
@@ -116,7 +117,6 @@ module.exports = {
           searchStartsWith,
           searchValue,
           searchStartsWith,
-          searchValue,
           searchValue,
         ];
       }
@@ -147,7 +147,6 @@ module.exports = {
   ${orderClause}
   LIMIT ? OFFSET ?
 `;
-
           const finalValues = [...values, ...searchValues, limit, offset];
           pool.query(query, finalValues, (err, results) => {
             if (err) {
@@ -338,6 +337,7 @@ module.exports = {
         .json({ message: "Property listing updated successfully" });
     });
   },
+
   deleteListing: (req, res) => {
     const { unique_property_id } = req.query;
     if (!unique_property_id) {
@@ -473,29 +473,72 @@ module.exports = {
     }
   },
   getLatestProperties: async (req, res) => {
+    const { property_for } = req.query;
     try {
-      pool.query(
-        `SELECT COUNT(*) AS total_count FROM properties`,
-        (err, countResults) => {
-          if (err) {
-            console.error("Error fetching total count:", err);
-            return res.status(500).json({ error: "Database query failed" });
-          }
-          const total_count = countResults[0].total_count;
-          pool.query(
-            `SELECT * FROM properties ORDER BY created_date DESC, id DESC  LIMIT 10`,
-            (err, results) => {
-              if (err) {
-                console.error("Error fetching properties:", err);
-                return res.status(500).json({ error: "Database query failed" });
-              }
-              res.status(200).json({ total_count, properties: results });
-            }
-          );
+      let query = `SELECT * FROM properties WHERE property_status = 1`;
+      let queryParams = [];
+      if (property_for) {
+        query += ` AND property_for = ?`;
+        queryParams.push(property_for);
+      }
+      query += ` ORDER BY id DESC LIMIT 5`;
+      pool.query(query, queryParams, (err, results) => {
+        if (err) {
+          console.error("Error fetching properties:", err);
+          return res.status(500).json({ error: "Database query failed" });
         }
-      );
+        res.status(200).json({
+          count: results.length,
+          properties: results,
+        });
+      });
     } catch (error) {
       console.error("Error fetching latest properties:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  },
+  getPropertiesByUserID: (req, res) => {
+    const { user_id } = req.query;
+    if (!user_id) {
+      return res.status(400).json({ error: "Missing user_id parameter" });
+    }
+    try {
+      const query = `SELECT * FROM properties WHERE user_id = ? ORDER BY id ASC LIMIT 10`;
+      const queryParams = [user_id];
+      pool.query(query, queryParams, (err, results) => {
+        if (err) {
+          console.error("Error fetching properties:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        res.status(200).json({
+          count: results.length,
+          properties: results,
+        });
+      });
+    } catch (error) {
+      console.error("Error fetching properties by user ID:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  },
+  getRandomPropertiesAds: (req, res) => {
+    try {
+      const query = `SELECT * FROM properties WHERE property_status = 1 ORDER BY id DESC LIMIT 15`;
+      pool.query(query, [], (err, results) => {
+        if (err) {
+          console.error("Error fetching properties:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        if (results.length === 0) {
+          return res.status(404).json({ message: "No properties found" });
+        }
+        const shuffled = results.sort(() => 0.5 - Math.random());
+        const selected = shuffled.slice(0, 3);
+        res.status(200).json({
+          results: selected,
+        });
+      });
+    } catch (error) {
+      console.error("Error fetching random properties:", error);
       res.status(500).json({ message: "Internal Server Error" });
     }
   },

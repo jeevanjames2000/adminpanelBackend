@@ -12,6 +12,8 @@ router.get(
   "/getAllFloorPlans/:unique_property_id",
   listingController.getAllFloorPlans
 );
+router.get("/getRandomPropertiesAds", listingController.getRandomPropertiesAds);
+router.get("/getPropertiesByUserID", listingController.getPropertiesByUserID);
 router.get("/getLatestProperties", listingController.getLatestProperties);
 router.post("/updateListing", listingController.updateListing);
 router.post("/updateStatus", listingController.updateStatus);
