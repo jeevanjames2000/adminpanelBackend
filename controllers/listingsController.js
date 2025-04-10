@@ -542,4 +542,71 @@ module.exports = {
       res.status(500).json({ message: "Internal Server Error" });
     }
   },
+  getBestDeals: (req, res) => {
+    try {
+      const query = `SELECT * FROM properties WHERE other_info = 'best deal' ORDER BY id DESC`;
+      pool.query(query, [], (err, results) => {
+        if (err) {
+          console.error("Error fetching properties:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        if (results.length === 0) {
+          return res.status(404).json({ message: "No properties found" });
+        }
+        const shuffled = results.sort(() => 0.5 - Math.random());
+        const selected = shuffled.slice(0, 3);
+        res.status(200).json({
+          results: selected,
+        });
+      });
+    } catch (error) {
+      console.error("Error fetching random properties:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  },
+
+  getBestMeetOwner: (req, res) => {
+    try {
+      const query = `SELECT * FROM properties WHERE other_info = 'best meetowner' ORDER BY id DESC`;
+      pool.query(query, [], (err, results) => {
+        if (err) {
+          console.error("Error fetching properties:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        if (results.length === 0) {
+          return res.status(404).json({ message: "No properties found" });
+        }
+        const shuffled = results.sort(() => 0.5 - Math.random());
+        const selected = shuffled.slice(0, 3);
+        res.status(200).json({
+          results: selected,
+        });
+      });
+    } catch (error) {
+      console.error("Error fetching random properties:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  },
+  getRecomendedSellers: (req, res) => {
+    try {
+      const query = `SELECT * FROM users WHERE user_type = 6`;
+      pool.query(query, [], (err, results) => {
+        if (err) {
+          console.error("Error fetching properties:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        if (results.length === 0) {
+          return res.status(404).json({ message: "No properties found" });
+        }
+        const shuffled = results.sort(() => 0.5 - Math.random());
+        const selected = shuffled.slice(0, 3);
+        res.status(200).json({
+          results: selected,
+        });
+      });
+    } catch (error) {
+      console.error("Error fetching random properties:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  },
 };

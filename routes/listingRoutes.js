@@ -15,6 +15,9 @@ router.get(
 router.get("/getRandomPropertiesAds", listingController.getRandomPropertiesAds);
 router.get("/getPropertiesByUserID", listingController.getPropertiesByUserID);
 router.get("/getLatestProperties", listingController.getLatestProperties);
+router.get("/getBestDeals", listingController.getBestDeals);
+router.get("/getBestMeetowner", listingController.getBestMeetOwner);
+router.get("/getRecomendedSellers", listingController.getRecomendedSellers);
 router.post("/updateListing", listingController.updateListing);
 router.post("/updateStatus", listingController.updateStatus);
 router.delete("/deleteListing", listingController.deleteListing);
