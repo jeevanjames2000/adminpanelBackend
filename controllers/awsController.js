@@ -5,6 +5,8 @@ const {
 } = require("@aws-sdk/client-s3");
 const s3 = require("../config/s3");
 const path = require("path");
+const pool = require("../config/db");
+
 const { v4: uuidv4 } = require("uuid");
 const BUCKET_NAME = process.env.S3_BUCKET_NAME;
 const mediaStore = {};
@@ -88,33 +90,28 @@ module.exports = {
     try {
       const command = new ListObjectsV2Command({
         Bucket: BUCKET_NAME,
-        Prefix: "users/",
+        Prefix: "images/",
       });
-
       const data = await s3.send(command);
       const imageUrls = (data.Contents || []).map((item) => {
         return `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${item.Key}`;
       });
-
       res.status(200).json({ images: imageUrls });
     } catch (err) {
       console.error("Error getting images:", err);
       res.status(500).json({ message: "Failed to fetch images" });
     }
   },
-
   getAllVideos: async (req, res) => {
     try {
       const command = new ListObjectsV2Command({
         Bucket: BUCKET_NAME,
         Prefix: "videos/",
       });
-
       const data = await s3.send(command);
       const videoUrls = (data.Contents || []).map((item) => {
         return `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${item.Key}`;
       });
-
       res.status(200).json({ videos: videoUrls });
     } catch (err) {
       console.error("Error getting videos:", err);
@@ -124,13 +121,28 @@ module.exports = {
   uploadUserImage: async (req, res) => {
     const { user_id } = req.body;
     const file = req.file;
-    if (!user_id || !file)
+    if (!user_id || !file) {
       return res.status(400).json({ message: "Missing user_id or file" });
+    }
+
     const ext = path.extname(file.originalname || "");
-    const key = `users/${user_id}/${Date.now()}${ext}`;
+    const key = `images/${user_id}/${Date.now()}${ext}`;
+
     try {
       const url = await uploadToS3(file.buffer, file.mimetype, key);
-      res.status(200).json({ message: "User image uploaded", url });
+
+      pool.query(
+        "UPDATE users SET photo = ? WHERE id = ?",
+        [url, user_id],
+        (err, results) => {
+          if (err) {
+            console.error("Database error:", err);
+            return res.status(500).json({ message: "Database update failed" });
+          }
+
+          return res.status(200).json({ message: "User image uploaded", url });
+        }
+      );
     } catch (err) {
       console.error("User image upload failed:", err);
       res.status(500).json({ message: "Upload failed" });
@@ -139,24 +151,73 @@ module.exports = {
   uploadPropertyImages: async (req, res) => {
     const { user_id, property_id } = req.body;
     const files = req.files;
+
     if (!user_id || !property_id || !files?.length) {
       return res
         .status(400)
         .json({ message: "Missing user_id, property_id or files" });
     }
+
     try {
       const uploadPromises = files.map((file) => {
         const ext = path.extname(file.originalname);
-        const key = `properties/${user_id}/${property_id}/${Date.now()}-${
+        const key = `images/${user_id}/${property_id}/${Date.now()}-${
           file.originalname
         }`;
         return uploadToS3(file.buffer, file.mimetype, key);
       });
+
       const urls = await Promise.all(uploadPromises);
-      res.status(200).json({ message: "Property images uploaded", urls });
+      const representativeImage = urls[0];
+
+      // 👇 Callback-based DB query
+      pool.query(
+        "UPDATE properties SET property_image = ? WHERE unique_property_id = ?",
+        [representativeImage, property_id],
+        (err, results) => {
+          if (err) {
+            console.error("Database error:", err);
+            return res.status(500).json({ message: "Database update failed" });
+          }
+
+          res.status(200).json({ message: "Property images uploaded", urls });
+        }
+      );
     } catch (err) {
       console.error("Property images upload failed:", err);
       res.status(500).json({ message: "Upload failed" });
+    }
+  },
+  getImagesById: async (req, res) => {
+    const { user_id, unique_property_id } = req.body;
+    if (!user_id && !unique_property_id) {
+      return res
+        .status(400)
+        .json({ message: "Please provide user_id or unique_property_id" });
+    }
+    let prefix = "images/";
+    if (user_id && unique_property_id) {
+      prefix = `images/${user_id}/${unique_property_id}/`;
+    } else if (user_id) {
+      prefix = `images/${user_id}/`;
+    } else {
+      return res
+        .status(400)
+        .json({ message: "user_id is required if using unique_property_id" });
+    }
+    try {
+      const command = new ListObjectsV2Command({
+        Bucket: BUCKET_NAME,
+        Prefix: prefix,
+      });
+      const data = await s3.send(command);
+      const imageUrls = (data.Contents || []).map((item) => {
+        return `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${item.Key}`;
+      });
+      res.status(200).json({ images: imageUrls });
+    } catch (err) {
+      console.error("Error fetching images by ID:", err);
+      res.status(500).json({ message: "Failed to fetch images" });
     }
   },
 };

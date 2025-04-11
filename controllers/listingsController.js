@@ -337,7 +337,6 @@ module.exports = {
         .json({ message: "Property listing updated successfully" });
     });
   },
-
   deleteListing: (req, res) => {
     const { unique_property_id } = req.query;
     if (!unique_property_id) {
@@ -415,38 +414,6 @@ module.exports = {
         );
       });
     });
-  },
-  getAllLeadsByFilter: async (req, res) => {
-    const { property_for, search = "" } = req.query;
-    try {
-      const query = `
-            SELECT sp.id, sp.property_id, sp.user_id, sp.name, sp.mobile, sp.email, 
-                   sp.searched_on_date, sp.searched_on_time, sp.interested_status, 
-                   sp.property_user_id, sp.searched_filter_desc, sp.shedule_date, 
-                   sp.shedule_time, sp.view_status, 
-                   COALESCE(p.property_for, 'Unknown') AS property_for
-            FROM searched_properties sp
-            LEFT JOIN properties p ON sp.property_id = p.unique_property_id
-            ${property_for ? "WHERE p.property_for = ?" : ""}
-        `;
-      const values = property_for ? [property_for] : [];
-      const [result] = await pool.promise().query(query, values);
-      if (result.length === 0) {
-        return res.status(404).json({
-          message: `No results found for: ${property_for || "All"}`,
-          count: 0,
-          data: [],
-        });
-      }
-      res.status(200).json({
-        message: "Data fetched successfully",
-        count: result.length,
-        data: result,
-      });
-    } catch (error) {
-      console.error("Error fetching leads:", error);
-      res.status(500).json({ message: "Internal Server Error" });
-    }
   },
   getAllFloorPlans: async (req, res) => {
     try {
@@ -564,7 +531,6 @@ module.exports = {
       res.status(500).json({ message: "Internal Server Error" });
     }
   },
-
   getBestMeetOwner: (req, res) => {
     try {
       const query = `SELECT * FROM properties WHERE other_info = 'best meetowner' ORDER BY id DESC`;
@@ -606,6 +572,38 @@ module.exports = {
       });
     } catch (error) {
       console.error("Error fetching random properties:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  },
+  getAllLeadsByFilter: async (req, res) => {
+    const { property_for, search = "" } = req.query;
+    try {
+      const query = `
+            SELECT sp.id, sp.property_id, sp.user_id, sp.name, sp.mobile, sp.email, 
+                   sp.searched_on_date, sp.searched_on_time, sp.interested_status, 
+                   sp.property_user_id, sp.searched_filter_desc, sp.shedule_date, 
+                   sp.shedule_time, sp.view_status, 
+                   COALESCE(p.property_for, 'Unknown') AS property_for
+            FROM searched_properties sp
+            LEFT JOIN properties p ON sp.property_id = p.unique_property_id
+            ${property_for ? "WHERE p.property_for = ?" : ""}
+        `;
+      const values = property_for ? [property_for] : [];
+      const [result] = await pool.promise().query(query, values);
+      if (result.length === 0) {
+        return res.status(404).json({
+          message: `No results found for: ${property_for || "All"}`,
+          count: 0,
+          data: [],
+        });
+      }
+      res.status(200).json({
+        message: "Data fetched successfully",
+        count: result.length,
+        data: result,
+      });
+    } catch (error) {
+      console.error("Error fetching leads:", error);
       res.status(500).json({ message: "Internal Server Error" });
     }
   },

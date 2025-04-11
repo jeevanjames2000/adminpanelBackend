@@ -21,5 +21,5 @@ router.post(
 );
 router.get("/getAllImages", awsController.getAllImages);
 router.get("/getAlVideos", awsController.getAllVideos);
-
+router.get("/getImagesById", awsController.getImagesById);
 module.exports = router;

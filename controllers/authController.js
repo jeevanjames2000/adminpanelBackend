@@ -82,7 +82,6 @@ module.exports = {
             expiresIn: "7h",
           }
         );
-
         res.status(200).json({
           message: "Login successful",
           user: {
@@ -97,6 +96,7 @@ module.exports = {
             status: user.status,
             created_userID: user.created_userID,
             created_by: user.created_by,
+            photo: user.photo,
           },
           token,
         });
