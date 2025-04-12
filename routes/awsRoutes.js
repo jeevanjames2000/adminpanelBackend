@@ -22,4 +22,11 @@ router.post(
 router.get("/getAllImages", awsController.getAllImages);
 router.get("/getAlVideos", awsController.getAllVideos);
 router.get("/getImagesById", awsController.getImagesById);
+router.post(
+  "/uploadAdVideo",
+  upload.single("file"),
+  awsController.uploadAdVideo
+);
+router.get("/getAllAdVideos", awsController.getAllAdVideos);
+
 module.exports = router;

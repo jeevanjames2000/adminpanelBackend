@@ -6,7 +6,6 @@ const {
 const s3 = require("../config/s3");
 const path = require("path");
 const pool = require("../config/db");
-
 const { v4: uuidv4 } = require("uuid");
 const BUCKET_NAME = process.env.S3_BUCKET_NAME;
 const mediaStore = {};
@@ -124,13 +123,10 @@ module.exports = {
     if (!user_id || !file) {
       return res.status(400).json({ message: "Missing user_id or file" });
     }
-
     const ext = path.extname(file.originalname || "");
     const key = `images/${user_id}/${Date.now()}${ext}`;
-
     try {
       const url = await uploadToS3(file.buffer, file.mimetype, key);
-
       pool.query(
         "UPDATE users SET photo = ? WHERE id = ?",
         [url, user_id],
@@ -139,7 +135,6 @@ module.exports = {
             console.error("Database error:", err);
             return res.status(500).json({ message: "Database update failed" });
           }
-
           return res.status(200).json({ message: "User image uploaded", url });
         }
       );
@@ -151,13 +146,11 @@ module.exports = {
   uploadPropertyImages: async (req, res) => {
     const { user_id, property_id } = req.body;
     const files = req.files;
-
     if (!user_id || !property_id || !files?.length) {
       return res
         .status(400)
         .json({ message: "Missing user_id, property_id or files" });
     }
-
     try {
       const uploadPromises = files.map((file) => {
         const ext = path.extname(file.originalname);
@@ -166,11 +159,8 @@ module.exports = {
         }`;
         return uploadToS3(file.buffer, file.mimetype, key);
       });
-
       const urls = await Promise.all(uploadPromises);
       const representativeImage = urls[0];
-
-      // 👇 Callback-based DB query
       pool.query(
         "UPDATE properties SET property_image = ? WHERE unique_property_id = ?",
         [representativeImage, property_id],
@@ -179,7 +169,6 @@ module.exports = {
             console.error("Database error:", err);
             return res.status(500).json({ message: "Database update failed" });
           }
-
           res.status(200).json({ message: "Property images uploaded", urls });
         }
       );
@@ -219,5 +208,77 @@ module.exports = {
       console.error("Error fetching images by ID:", err);
       res.status(500).json({ message: "Failed to fetch images" });
     }
+  },
+  uploadAdVideo: async (req, res) => {
+    if (!req.file) return res.status(400).json({ message: "No file uploaded" });
+
+    const { order, property_id, user_id } = req.body;
+    if (!order) {
+      return res.status(400).json({ message: "Order number is required" });
+    }
+
+    try {
+      const id = uuidv4();
+      const key = `adVideos/${id}-${req.file.originalname}`;
+      const url = await uploadToS3(req.file.buffer, req.file.mimetype, key);
+
+      const created_date = new Date().toISOString().split("T")[0];
+
+      const insertQuery = `
+      INSERT INTO ad_videos (id, video_url, ad_order, property_id, user_id, created_date)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `;
+      const values = [
+        id,
+        url,
+        parseInt(order),
+        property_id || null,
+        user_id || null,
+        created_date,
+      ];
+
+      pool.query(insertQuery, values, (err, result) => {
+        if (err) {
+          console.error("DB insert failed:", err);
+          return res.status(500).json({ error: "Database insert failed" });
+        }
+        res.status(200).json({
+          message: "Ad video uploaded and saved",
+          data: {
+            id,
+            order: parseInt(order),
+            video: url,
+            property_id,
+            user_id,
+            created_date,
+          },
+        });
+      });
+    } catch (err) {
+      console.error("Upload error:", err);
+      res.status(500).json({ error: "Upload failed" });
+    }
+  },
+  getAllAdVideos: (req, res) => {
+    const query = `
+    SELECT id, video_url, ad_order, property_id, user_id, created_date
+    FROM ad_videos
+    ORDER BY ad_order ASC
+  `;
+
+    pool.query(query, (err, results) => {
+      if (err) {
+        console.error("Failed to fetch ad videos:", err);
+        return res.status(500).json({ error: "Database query failed" });
+      }
+
+      if (results.length === 0) {
+        return res.status(404).json({ message: "No ad videos found" });
+      }
+      res.status(200).json({
+        message: "Ad videos fetched successfully",
+        results,
+      });
+    });
   },
 };

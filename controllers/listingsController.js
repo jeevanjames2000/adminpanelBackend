@@ -523,7 +523,7 @@ module.exports = {
         const shuffled = results.sort(() => 0.5 - Math.random());
         const selected = shuffled.slice(0, 3);
         res.status(200).json({
-          results: selected,
+          results: shuffled,
         });
       });
     } catch (error) {
@@ -555,23 +555,21 @@ module.exports = {
   },
   getRecomendedSellers: (req, res) => {
     try {
-      const query = `SELECT * FROM users WHERE user_type = 6`;
+      const query = `SELECT * FROM users WHERE user_type = 4  LIMIT 10`;
       pool.query(query, [], (err, results) => {
         if (err) {
-          console.error("Error fetching properties:", err);
+          console.error("Error fetching sellers:", err);
           return res.status(500).json({ error: "Database query failed" });
         }
         if (results.length === 0) {
-          return res.status(404).json({ message: "No properties found" });
+          return res.status(404).json({ message: "No sellers found" });
         }
         const shuffled = results.sort(() => 0.5 - Math.random());
         const selected = shuffled.slice(0, 3);
-        res.status(200).json({
-          results: selected,
-        });
+        res.status(200).json({ results });
       });
     } catch (error) {
-      console.error("Error fetching random properties:", error);
+      console.error("Error fetching recommended sellers:", error);
       res.status(500).json({ message: "Internal Server Error" });
     }
   },
@@ -604,6 +602,76 @@ module.exports = {
       });
     } catch (error) {
       console.error("Error fetching leads:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  },
+  getMeetOwnerExclusive: (req, res) => {
+    try {
+      const query = `SELECT * FROM properties WHERE other_info = 'meetowner exclusive' ORDER BY id ASC`;
+      pool.query(query, [], (err, results) => {
+        if (err) {
+          console.error("Error fetching properties:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        if (results.length === 0) {
+          return res.status(404).json({ message: "No properties found" });
+        }
+        const shuffled = results.sort(() => 0.5 - Math.random());
+        const selected = shuffled.slice(0, 3);
+        res.status(200).json({
+          results: shuffled,
+        });
+      });
+    } catch (error) {
+      console.error("Error fetching random properties:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  },
+  getMostPropertiesSeller: (req, res) => {
+    try {
+      const query = `
+      SELECT u.*, COUNT(p.id) AS property_count
+      FROM users u
+      JOIN properties p ON u.id = p.user_id
+      GROUP BY u.id
+      ORDER BY property_count DESC
+      LIMIT 10
+    `;
+
+      pool.query(query, [], (err, results) => {
+        if (err) {
+          console.error("Error fetching top sellers:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        if (results.length === 0) {
+          return res.status(404).json({ message: "No sellers found" });
+        }
+        res.status(200).json({ sellers: results });
+      });
+    } catch (error) {
+      console.error("Error in getMostPropertiesSeller:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  },
+  getHighDemandProjects: (req, res) => {
+    try {
+      const query = `SELECT * FROM properties WHERE other_info = 'best deal' OR other_info = 'best meetowner' ORDER BY id DESC`;
+      pool.query(query, [], (err, results) => {
+        if (err) {
+          console.error("Error fetching properties:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        if (results.length === 0) {
+          return res.status(404).json({ message: "No properties found" });
+        }
+        const shuffled = results.sort(() => 0.5 - Math.random());
+
+        res.status(200).json({
+          results: shuffled,
+        });
+      });
+    } catch (error) {
+      console.error("Error fetching random properties:", error);
       res.status(500).json({ message: "Internal Server Error" });
     }
   },

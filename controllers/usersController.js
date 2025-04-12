@@ -229,81 +229,60 @@ module.exports = {
     }
   },
   updateUser: async (req, res) => {
-    const {
-      id,
-      name,
-      mobile,
-      email,
-      designation,
-      city,
-      pincode,
-      state,
-      user_type,
-      status,
-      created_userID,
-    } = req.body;
+    const { id, ...fieldsToUpdate } = req.body;
+
     if (!id) {
       return res
         .status(400)
         .json({ message: "User ID is required for update" });
     }
-    try {
-      const duplicateCheckQuery = `
-      SELECT * FROM users WHERE name = ? AND user_type = ? AND id != ?
-    `;
-      pool.query(
-        duplicateCheckQuery,
-        [name, user_type, id],
-        async (err, results) => {
-          if (err) {
-            console.error("Duplicate check failed:", err);
-            return res
-              .status(500)
-              .json({ message: "Database error during duplicate check" });
-          }
-          if (results.length > 0) {
-            return res.status(409).json({
-              message:
-                "Another user with the same name and user_type already exists",
-            });
-          }
 
-          const updateQuery = `
-        UPDATE users
-        SET name = ?, mobile = ?, email = ?, designation = ?,  city = ?, pincode = ?, state = ?, user_type = ?, updated_date = ?, updated_time = ?,status=?,created_userID= ?
-        WHERE id = ?
+    if (Object.keys(fieldsToUpdate).length === 0) {
+      return res.status(400).json({ message: "No fields to update" });
+    }
+
+    try {
+      const { name, user_type } = fieldsToUpdate;
+
+      // Check for duplicate (only if name and user_type are being updated)
+      if (name && user_type) {
+        const duplicateCheckQuery = `
+        SELECT * FROM users WHERE name = ? AND user_type = ? AND id != ?
       `;
-          const values = [
-            name,
-            mobile,
-            email,
-            designation,
-            city,
-            pincode,
-            state,
-            user_type,
-            currentDate,
-            currentTime,
-            status,
-            created_userID,
-            id,
-          ];
-          pool.query(updateQuery, values, (updateErr, result) => {
-            if (updateErr) {
-              console.error("Update failed:", updateErr);
-              return res
-                .status(500)
-                .json({ message: "Database error during update" });
-            }
-            res.status(200).json({ message: "User updated successfully" });
+        const [results] = await pool
+          .promise()
+          .query(duplicateCheckQuery, [name, user_type, id]);
+
+        if (results.length > 0) {
+          return res.status(409).json({
+            message:
+              "Another user with the same name and user_type already exists",
           });
         }
-      );
+      }
+
+      // Add timestamps
+      fieldsToUpdate.updated_date = currentDate;
+      fieldsToUpdate.updated_time = currentTime;
+
+      const updateFields = Object.keys(fieldsToUpdate)
+        .map((field) => `${field} = ?`)
+        .join(", ");
+
+      const values = Object.values(fieldsToUpdate);
+      values.push(id); // for WHERE clause
+
+      const updateQuery = `UPDATE users SET ${updateFields} WHERE id = ?`;
+
+      await pool.promise().query(updateQuery, values);
+
+      res.status(200).json({ message: "User updated successfully" });
     } catch (err) {
       console.error("Update error:", err);
       res.status(500).json({ message: "Server error" });
     }
   },
+
   deleteUser: async (req, res) => {
     const { id } = req.body;
     if (!id) {
