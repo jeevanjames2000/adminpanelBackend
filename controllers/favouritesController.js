@@ -34,7 +34,7 @@ module.exports = {
         .json({ message: "User ID and Property ID required" });
     }
 
-    if (status === "false") {
+    if (status === 1) {
       const deleteQuery = `DELETE FROM favourites WHERE user_id = ? AND property_id = ?`;
       pool.query(deleteQuery, [user_id, property_id], (err, result) => {
         if (err) {

@@ -27,7 +27,7 @@ module.exports = {
       res.status(500).json({ error: "Internal server error" });
     }
   },
-  getAllPropertiesByType: (req, res) => {
+  getAllPropertiesByType: async (req, res) => {
     try {
       const {
         property_status,
@@ -41,16 +41,14 @@ module.exports = {
         search = "",
         page = 1,
       } = req.query;
-      let conditions = [];
-      let values = [];
-      let orderClause = "ORDER BY id DESC";
-      if (priceFilter === "Price: Low to High") {
-        orderClause = "ORDER BY CAST(p.property_cost AS DECIMAL) ASC";
-      } else if (priceFilter === "Price: High to Low") {
-        orderClause = "ORDER BY CAST(p.property_cost AS DECIMAL) DESC";
-      } else if (priceFilter === "Newest First") {
-        orderClause = "ORDER BY id DESC";
-      }
+
+      const conditions = [
+        "p.property_name IS NOT NULL",
+        "p.description IS NOT NULL",
+      ];
+      const values = [];
+
+      // Apply filters
       if (property_status) {
         conditions.push("p.property_status = ?");
         values.push(property_status);
@@ -88,95 +86,110 @@ module.exports = {
         conditions.push("p.property_in = ?");
         values.push(property_in);
       }
-      conditions.push("p.property_name IS NOT NULL");
-      conditions.push("p.description IS NOT NULL");
-      const whereClause = conditions.length
-        ? `WHERE ${conditions.join(" AND ")}`
-        : "WHERE 1=1";
-      let searchCondition = "";
-      let searchValues = [];
+
+      // Search logic
+      let searchClause = "";
+      const searchValues = [];
       if (search) {
-        const searchLower = search.toLowerCase();
-        const searchValue = `%${searchLower}%`;
-        const searchStartsWith = `${searchLower}%`;
-        searchCondition = `
+        const searchLower = `%${search.toLowerCase()}%`;
+        const searchStart = `${search.toLowerCase()}%`;
+        searchClause = `
         AND (
           LOWER(p.unique_property_id) LIKE ? OR
           LOWER(p.property_name) LIKE ? OR
-          LOWER(p.google_address) LIKE ? OR
           LOWER(p.google_address) LIKE ? OR
           LOWER(p.location_id) LIKE ? OR
           LOWER(u.name) LIKE ? OR
           u.mobile LIKE ?
         )
       `;
-        searchValues = [
-          searchValue,
-          searchValue,
-          searchValue,
-          searchStartsWith,
-          searchValue,
-          searchStartsWith,
-          searchValue,
-        ];
+        searchValues.push(
+          searchLower,
+          searchLower,
+          searchLower,
+          searchLower,
+          searchStart,
+          searchLower
+        );
       }
+
+      const whereClause = conditions.length
+        ? `WHERE ${conditions.join(" AND ")}`
+        : "";
+
+      // Sorting
+      let orderBy = "ORDER BY p.id DESC";
+      if (priceFilter === "Price: Low to High") {
+        orderBy = "ORDER BY CAST(p.property_cost AS DECIMAL) ASC";
+      } else if (priceFilter === "Price: High to Low") {
+        orderBy = "ORDER BY CAST(p.property_cost AS DECIMAL) DESC";
+      }
+
       const limit = 15;
-      const pageNumber = parseInt(page);
-      const offset =
-        (isNaN(pageNumber) || pageNumber < 1 ? 0 : pageNumber - 1) * limit;
+      const pageNumber = parseInt(page) || 1;
+      const offset = (pageNumber - 1) * limit;
+
+      // Count Query
       const countQuery = `
       SELECT COUNT(*) AS total_count
       FROM properties p
       LEFT JOIN users u ON p.user_id = u.id
-      ${whereClause} ${searchCondition}
+      ${whereClause}
+      ${searchClause}
     `;
-      pool.query(
-        countQuery,
-        [...values, ...searchValues],
-        (err, countResults) => {
+
+      const countParams = [...values, ...searchValues];
+      pool.query(countQuery, countParams, (err, countResults) => {
+        if (err) {
+          console.error("Count Query Error:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+
+        const total_count = countResults[0].total_count;
+        const total_pages = Math.ceil(total_count / limit);
+
+        // Data Query
+        const dataQuery = `
+        SELECT p.*, u.name, u.email, u.mobile, u.photo, u.user_type
+        FROM properties p
+        LEFT JOIN users u ON p.user_id = u.id
+        ${whereClause}
+        ${searchClause}
+        ${orderBy}
+        LIMIT ? OFFSET ?
+      `;
+
+        const finalParams = [...values, ...searchValues, limit, offset];
+
+        pool.query(dataQuery, finalParams, (err, results) => {
           if (err) {
-            console.error("Error fetching total count:", err);
+            console.error("Property Fetch Error:", err);
             return res.status(500).json({ error: "Database query failed" });
           }
-          const total_count = countResults[0].total_count;
-          const query = `
-  SELECT p.*, u.name, u.email, u.mobile, u.photo, u.user_type
-  FROM properties p
-  LEFT JOIN users u ON p.user_id = u.id
-  ${whereClause} ${searchCondition}
-  ${orderClause}
-  LIMIT ? OFFSET ?
-`;
-          const finalValues = [...values, ...searchValues, limit, offset];
-          pool.query(query, finalValues, (err, results) => {
-            if (err) {
-              console.error("Error fetching properties:", err);
-              return res.status(500).json({ error: "Database query failed" });
-            }
-            const properties = results.map((row) => {
-              const { name, email, mobile, photo, user_type, ...property } =
-                row;
-              return {
-                ...property,
-                user: { name, email, mobile, photo, user_type },
-              };
-            });
-            const currentCount = properties.length;
-            res.status(200).json({
-              total_count,
-              current_page: pageNumber,
-              currentCount,
-              total_pages: Math.ceil(total_count / limit),
-              properties,
-            });
+
+          const properties = results.map((row) => {
+            const { name, email, mobile, photo, user_type, ...property } = row;
+            return {
+              ...property,
+              user: { name, email, mobile, photo, user_type },
+            };
           });
-        }
-      );
+
+          res.status(200).json({
+            total_count,
+            current_page: pageNumber,
+            total_pages,
+            current_count: properties.length,
+            properties,
+          });
+        });
+      });
     } catch (error) {
-      console.error("Server error:", error);
+      console.error("Unexpected Server Error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   },
+
   getListingsByLimit: (req, res) => {
     try {
       const page = parseInt(req.query.page) || 1;

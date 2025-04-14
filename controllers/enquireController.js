@@ -47,7 +47,6 @@ module.exports = {
       searched_filter_desc,
       shedule_date,
       shedule_time,
-      view_status,
     } = req.body;
     if (!property_id || !user_id) {
       return res
@@ -88,7 +87,7 @@ module.exports = {
       searched_filter_desc || null,
       shedule_date || null,
       shedule_time || null,
-      view_status || null,
+      0,
     ];
     pool.query(query, values, (err, result) => {
       if (err) {
