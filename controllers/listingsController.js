@@ -11,7 +11,7 @@ module.exports = {
           }
           const total_count = countResults[0].total_count;
           pool.query(
-            `SELECT * FROM properties ORDER BY created_date DESC`,
+            `SELECT * FROM properties WHERE property_status=1 ORDER BY id DESC`,
             (err, results) => {
               if (err) {
                 console.error("Error fetching properties:", err);
