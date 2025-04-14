@@ -2,6 +2,7 @@ const pool = require("../config/db");
 const jwt = require("jsonwebtoken");
 const JWT_SECRET = process.env.JWT_SECRET;
 const bcrypt = require("bcrypt");
+const { default: axios } = require("axios");
 module.exports = {
   login: async (req, res) => {
     try {
@@ -42,7 +43,6 @@ module.exports = {
   },
   loginAgents: (req, res) => {
     const { mobile, password } = req.body;
-    console.log("password: ", password);
     if (!mobile || !password) {
       return res
         .status(400)
@@ -52,7 +52,6 @@ module.exports = {
     const query = `SELECT * FROM users WHERE mobile = ?`;
 
     pool.query(query, [mobile], async (err, results) => {
-      console.log("results: ", results);
       if (err) {
         console.error("Database error during login:", err);
         return res.status(500).json({ message: "Database error" });
@@ -69,7 +68,6 @@ module.exports = {
 
       try {
         const isPasswordValid = await bcrypt.compare(password, user.password);
-        console.log("isPasswordValid: ", isPasswordValid);
         if (!isPasswordValid) {
           return res
             .status(401)
@@ -107,5 +105,85 @@ module.exports = {
           .json({ message: "Error while verifying password" });
       }
     });
+  },
+  sendOtp: async (req, res) => {
+    const { mobile } = req.query;
+    try {
+      if (!mobile) {
+        return res.status(200).json({
+          status: "error",
+          message: "Mobile number is required",
+        });
+      }
+      const user_id = "meetowner2023";
+      const pwd = "Meet@123";
+      const sender_id = "METOWR";
+      const sys_otp = Math.floor(1000 + Math.random() * 9000);
+      const message = `Dear customer, ${sys_otp} is the OTP for Login it will expire in 2 minutes. Don't share to anyone -MEET OWNER`;
+      const api_url = "http://tra.bulksmshyderabad.co.in/websms/sendsms.aspx";
+      const params = {
+        userid: user_id,
+        password: pwd,
+        sender: sender_id,
+        mobileno: mobile,
+        msg: message,
+        peid: "1101542890000073814",
+        tpid: "1107169859354543707",
+      };
+      try {
+        const response = await axios.get(api_url, { params });
+        return res.status(200).json({
+          status: "success",
+          message: "OTP sent successfully!",
+          otp: sys_otp,
+          apiResponse: response.data,
+        });
+      } catch (error) {
+        return res.status(500).json({
+          status: "error",
+          message: "Error sending SMS",
+          error: error.message,
+        });
+      }
+    } catch (error) {
+      return res.status(500).json({
+        status: "error",
+        message: "Internal server error",
+      });
+    }
+  },
+  sendGallaboxOTP: async (req, res) => {
+    const { mobile } = req.body;
+    const generatedOtp = Math.floor(1000 + Math.random() * 9000);
+
+    try {
+      const response = await axios.post(
+        "https://server.gallabox.com/devapi/messages/whatsapp",
+        {
+          channelId: "67a9e14542596631a8cfc87b",
+          channelType: "whatsapp",
+          recipient: { name: "Hello", phone: `91${mobile}` },
+          whatsapp: {
+            type: "template",
+            template: {
+              templateName: "login_otp",
+              bodyValues: { otp: generatedOtp },
+            },
+          },
+        },
+        {
+          headers: {
+            apiKey: "67e3a37bfa6fbc8b1aa2edcf",
+            apiSecret: "a9fe1160c20f491eb00389683b29ec6b",
+            "Content-Type": "application/json",
+          },
+        }
+      );
+
+      res.json({ success: true, data: response.data, otp: generatedOtp });
+    } catch (err) {
+      console.error("Gallabox OTP error:", err.response?.data || err.message);
+      res.status(500).json({ success: false, message: "Failed to send OTP" });
+    }
   },
 };

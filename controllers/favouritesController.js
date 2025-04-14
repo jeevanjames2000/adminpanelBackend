@@ -4,19 +4,22 @@ module.exports = {
   getAllFavourites: (req, res) => {
     const { user_id } = req.query;
     if (!user_id) return res.status(400).json({ message: "User ID required" });
+
     const query = `
-      SELECT * 
-      FROM favourites 
-      ORDER BY id DESC
-    `;
+    SELECT * 
+    FROM favourites 
+    WHERE user_id = ?
+    ORDER BY id DESC
+  `;
+
     pool.query(query, [user_id], (err, results) => {
       if (err) {
-        console.error("Error fetching favourites:", err);
         return res.status(500).json({ error: "Database error" });
       }
       return res.status(200).json({ favourites: results });
     });
   },
+
   postIntrest: (req, res) => {
     const {
       user_id,

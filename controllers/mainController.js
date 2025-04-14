@@ -40,4 +40,40 @@ module.exports = {
       res.status(200).json(results);
     });
   },
+  getTermsAndConditions: (req, res) => {
+    pool.query("SELECT * FROM company_terms", (err, results) => {
+      if (err) {
+        console.error("Error fetching terms and conditions:", err);
+        return res.status(500).json({ error: "Database query failed" });
+      }
+      res.status(200).json(results);
+    });
+  },
+  getPrivacyPolicy: (req, res) => {
+    pool.query("SELECT * FROM company_privacy", (err, results) => {
+      if (err) {
+        console.error("Error fetching privacy policy:", err);
+        return res.status(500).json({ error: "Database query failed" });
+      }
+      res.status(200).json(results);
+    });
+  },
+  getServices: (req, res) => {
+    pool.query("SELECT * FROM company_services", (err, results) => {
+      if (err) {
+        console.error("Error fetching services:", err);
+        return res.status(500).json({ error: "Database query failed" });
+      }
+      res.status(200).json(results);
+    });
+  },
+  getCareers: (req, res) => {
+    pool.query("SELECT * FROM company_careers", (err, results) => {
+      if (err) {
+        console.error("Error fetching careers:", err);
+        return res.status(500).json({ error: "Database query failed" });
+      }
+      res.status(200).json(results);
+    });
+  },
 };
