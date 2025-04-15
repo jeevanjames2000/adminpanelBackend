@@ -7,5 +7,5 @@ router.post("/login", authController.login);
 router.post("/loginAgent", authController.loginAgents);
 router.post("/sendGallaboxOTP", authController.sendGallaboxOTP);
 router.get("/sendOtp", authController.sendOtp);
-
+router.post("/sendWhatsappLeads", authController.sendWhatsappLeads);
 module.exports = router;

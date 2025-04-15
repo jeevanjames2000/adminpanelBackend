@@ -30,29 +30,45 @@ module.exports = {
       values.push(user_type);
     }
 
-    // First fetch user count
     pool.query(countSql, values, (err, countResult) => {
       if (err) {
         console.error("Error fetching user count:", err);
         return res.status(500).json({ error: "Database query failed" });
       }
-
       const userCount = countResult[0].count;
 
-      // Then fetch all users
       pool.query(sql, values, async (err, users) => {
         if (err) {
           console.error("Error fetching users:", err);
           return res.status(500).json({ error: "Database query failed" });
         }
 
-        // Fetch searched_properties for each user
         try {
           const userIds = users.map((user) => user.id);
+          if (userIds.length === 0) {
+            return res.status(200).json({
+              success: true,
+              count: 0,
+              data: [],
+            });
+          }
 
-          // Build a single query to get all searched_properties by user_id
           const placeholders = userIds.map(() => "?").join(",");
-          const searchSql = `SELECT * FROM searched_properties WHERE user_id IN (${placeholders})`;
+          const searchSql = `
+  SELECT 
+    sp.*, 
+    p.property_name, 
+    p.location_id, 
+    p.google_address 
+  FROM searched_properties sp 
+  LEFT JOIN properties p 
+    ON sp.property_id = p.unique_property_id 
+  WHERE 
+    sp.user_id IN (${placeholders}) 
+    AND sp.property_id IS NOT NULL 
+    AND sp.property_id != '' 
+    AND sp.property_id != '0'
+`;
 
           pool.query(searchSql, userIds, (err, searchedResults) => {
             if (err) {
@@ -62,7 +78,6 @@ module.exports = {
                 .json({ error: "Failed to get searched properties" });
             }
 
-            // Group searched properties by user_id
             const groupedSearches = {};
             searchedResults.forEach((item) => {
               if (!groupedSearches[item.user_id]) {
@@ -71,13 +86,11 @@ module.exports = {
               groupedSearches[item.user_id].push(item);
             });
 
-            // Attach userActivity to each user
             const enrichedUsers = users.map((user) => ({
               ...user,
               userActivity: groupedSearches[user.id] || [],
             }));
 
-            // Final response
             res.status(200).json({
               success: true,
               count: userCount,
@@ -91,7 +104,6 @@ module.exports = {
       });
     });
   },
-
   createUser: async (req, res) => {
     const {
       name,

@@ -186,4 +186,61 @@ module.exports = {
       res.status(500).json({ success: false, message: "Failed to send OTP" });
     }
   },
+  sendWhatsappLeads: async (req, res) => {
+    const {
+      name,
+      mobile,
+      ownerName,
+      ownerMobile,
+      property_name,
+      property_subtype,
+      google_address,
+      sub_type,
+    } = req.body;
+
+    const payload = {
+      channelId: "67a9e14542596631a8cfc87b",
+      channelType: "whatsapp",
+      recipient: {
+        name: ownerName,
+        phone: `91${ownerMobile}`,
+      },
+      whatsapp: {
+        type: "template",
+        template: {
+          templateName: "leads_information_for_partners_clone",
+          bodyValues: {
+            name,
+            phone: mobile,
+            variable_3: property_subtype || sub_type || "Property",
+            variable_4: property_name,
+            variable_5: google_address?.split(",")[0]?.trim() || "",
+          },
+        },
+      },
+    };
+
+    const headers = {
+      apiKey: "67e3a37bfa6fbc8b1aa2edcf",
+      apiSecret: "a9fe1160c20f491eb00389683b29ec6b",
+      "Content-Type": "application/json",
+    };
+
+    try {
+      const response = await axios.post(
+        "https://server.gallabox.com/devapi/messages/whatsapp",
+        payload,
+        { headers }
+      );
+
+      console.log("response: ", response);
+      if (response.status === 200) {
+        return res.status(200).json({ message: "WhatsApp message sent!" });
+      }
+    } catch (error) {
+      return res
+        .status(500)
+        .json({ message: "Failed to send WhatsApp message" });
+    }
+  },
 };
