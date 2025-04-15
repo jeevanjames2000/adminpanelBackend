@@ -234,7 +234,7 @@ module.exports = {
       );
 
       console.log("response: ", response);
-      if (response.status === 200) {
+      if (response.status === 202) {
         return res.status(200).json({ message: "WhatsApp message sent!" });
       }
     } catch (error) {

@@ -259,6 +259,59 @@ module.exports = {
       res.status(500).json({ error: "Upload failed" });
     }
   },
+  uploadAdImage: async (req, res) => {
+    if (!req.file)
+      return res.status(400).json({ message: "No image uploaded" });
+
+    // const { order } = req.body;
+    // if (!order) {
+    //   return res.status(400).json({ message: "Order number is required" });
+    // }
+
+    try {
+      const id = uuidv4();
+      const key = `adImages/${id}-${req.file.originalname}`;
+      const url = await uploadToS3(req.file.buffer, req.file.mimetype, key);
+
+      const created_date = new Date().toISOString().split("T")[0];
+
+      const insertQuery = `
+      INSERT INTO ad_videos (id, video_url, ad_order, property_id, user_id, created_date)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `;
+
+      const values = [
+        id,
+        url,
+        parseInt(order),
+        property_id || null,
+        user_id || null,
+        created_date,
+      ];
+
+      pool.query(insertQuery, values, (err, result) => {
+        if (err) {
+          console.error("DB insert failed:", err);
+          return res.status(500).json({ error: "Database insert failed" });
+        }
+        res.status(200).json({
+          message: "Ad image uploaded and saved",
+          data: {
+            id,
+            order: parseInt(order),
+            image: url,
+            property_id,
+            user_id,
+            created_date,
+          },
+        });
+      });
+    } catch (err) {
+      console.error("Upload error:", err);
+      res.status(500).json({ error: "Upload failed" });
+    }
+  },
+
   getAllAdVideos: (req, res) => {
     const query = `
     SELECT id, video_url, ad_order, property_id, user_id, created_date
