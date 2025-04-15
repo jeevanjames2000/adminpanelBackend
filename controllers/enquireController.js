@@ -82,7 +82,7 @@ module.exports = {
       email || null,
       searched_on_date,
       searched_on_time,
-      4,
+      1,
       property_user_id || null,
       searched_filter_desc || null,
       shedule_date || null,
@@ -108,7 +108,6 @@ module.exports = {
 
     const created_date = moment().format("YYYY-MM-DD");
     const updated_date = moment().format("YYYY-MM-DD");
-
     const query = `
     INSERT INTO contact_seller 
     (user_id, unique_property_id, fullname, email, mobile, created_date, updated_date) 
@@ -184,7 +183,7 @@ module.exports = {
       email || null,
       searched_on_date,
       searched_on_time,
-      3,
+      2,
       property_user_id || null,
       searched_filter_desc || null,
       shedule_date || null,

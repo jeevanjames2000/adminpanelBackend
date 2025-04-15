@@ -21,15 +21,7 @@ module.exports = {
   },
 
   postIntrest: (req, res) => {
-    const {
-      user_id,
-      property_id,
-      property_name,
-      property_image,
-      property_cost,
-      location,
-      status,
-    } = req.body;
+    const { user_id, property_id, status } = req.body;
 
     if (!user_id || !property_id) {
       return res
@@ -54,43 +46,37 @@ module.exports = {
           .json({ message: "Favourite removed successfully" });
       });
     } else {
-      // Insert favourite if status is true
-      const created_date = moment().format("YYYY-MM-DD");
-      const currentTime = moment().format("HH:mm:ss");
-      const created_on = moment().format("YYYY-MM-DD HH:mm:ss");
+      const searched_on_date = moment().format("YYYY-MM-DD");
+      const searched_on_time = moment().format("HH:mm:ss");
 
-      const insertQuery = `
-      INSERT INTO favourites 
-      (user_id, property_id, property_name, property_image, property_cost, location, created_date, created_time, created_on) 
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `;
+      const { status, ...filteredBody } = req.body;
 
-      pool.query(
-        insertQuery,
-        [
-          user_id,
-          property_id,
-          property_name || null,
-          property_image || null,
-          property_cost || null,
-          location || null,
-          created_date,
-          currentTime,
-          created_on,
-        ],
-        (err, result) => {
-          if (err) {
-            console.error("Error inserting favourite:", err);
-            return res.status(500).json({ error: "Database error" });
-          }
+      const data = {
+        ...filteredBody,
+        searched_on_date,
+        searched_on_time,
+      };
 
-          return res
-            .status(200)
-            .json({ message: "Favourite added successfully" });
+      const columns = Object.keys(data);
+      const values = Object.values(data);
+      const placeholders = columns.map(() => "?").join(", ");
+      const insertQuery = `INSERT INTO favourites (${columns.join(
+        ", "
+      )}) VALUES (${placeholders})`;
+
+      pool.query(insertQuery, values, (err, result) => {
+        if (err) {
+          console.error("Error inserting favourite:", err);
+          return res.status(500).json({ error: "Database error" });
         }
-      );
+
+        return res
+          .status(200)
+          .json({ message: "Favourite added successfully" });
+      });
     }
   },
+
   deleteIntrest: (req, res) => {
     const { user_id, property_id } = req.body;
     if (!user_id || !property_id) {

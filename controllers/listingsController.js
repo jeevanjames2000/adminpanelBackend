@@ -1,4 +1,5 @@
 const pool = require("../config/db");
+const moment = require("moment");
 module.exports = {
   getAllProperties: async (req, res) => {
     try {
@@ -41,14 +42,11 @@ module.exports = {
         search = "",
         page = 1,
       } = req.query;
-
       const conditions = [
         "p.property_name IS NOT NULL",
         "p.description IS NOT NULL",
       ];
       const values = [];
-
-      // Apply filters
       if (property_status) {
         conditions.push("p.property_status = ?");
         values.push(property_status);
@@ -86,8 +84,6 @@ module.exports = {
         conditions.push("p.property_in = ?");
         values.push(property_in);
       }
-
-      // Search logic
       let searchClause = "";
       const searchValues = [];
       if (search) {
@@ -112,24 +108,18 @@ module.exports = {
           searchLower
         );
       }
-
       const whereClause = conditions.length
         ? `WHERE ${conditions.join(" AND ")}`
         : "";
-
-      // Sorting
       let orderBy = "ORDER BY p.id DESC";
       if (priceFilter === "Price: Low to High") {
         orderBy = "ORDER BY CAST(p.property_cost AS DECIMAL) ASC";
       } else if (priceFilter === "Price: High to Low") {
         orderBy = "ORDER BY CAST(p.property_cost AS DECIMAL) DESC";
       }
-
       const limit = 15;
       const pageNumber = parseInt(page) || 1;
       const offset = (pageNumber - 1) * limit;
-
-      // Count Query
       const countQuery = `
       SELECT COUNT(*) AS total_count
       FROM properties p
@@ -137,18 +127,14 @@ module.exports = {
       ${whereClause}
       ${searchClause}
     `;
-
       const countParams = [...values, ...searchValues];
       pool.query(countQuery, countParams, (err, countResults) => {
         if (err) {
           console.error("Count Query Error:", err);
           return res.status(500).json({ error: "Database query failed" });
         }
-
         const total_count = countResults[0].total_count;
         const total_pages = Math.ceil(total_count / limit);
-
-        // Data Query
         const dataQuery = `
         SELECT p.*, u.name, u.email, u.mobile, u.photo, u.user_type
         FROM properties p
@@ -158,19 +144,35 @@ module.exports = {
         ${orderBy}
         LIMIT ? OFFSET ?
       `;
-
         const finalParams = [...values, ...searchValues, limit, offset];
-
         pool.query(dataQuery, finalParams, (err, results) => {
           if (err) {
             console.error("Property Fetch Error:", err);
             return res.status(500).json({ error: "Database query failed" });
           }
-
           const properties = results.map((row) => {
-            const { name, email, mobile, photo, user_type, ...property } = row;
+            const {
+              name,
+              email,
+              mobile,
+              photo,
+              user_type,
+              updated_date,
+              updated_time,
+              ...rest
+            } = row;
+
+            const formattedDate = updated_date
+              ? moment(updated_date).format("YYYY-MM-DD")
+              : null;
+            const formattedTime = updated_time
+              ? moment(updated_time, "HH:mm:ss").format("HH:mm:ss")
+              : null;
+
             return {
-              ...property,
+              ...rest,
+              updated_date: formattedDate,
+              updated_time: formattedTime,
               user: { name, email, mobile, photo, user_type },
             };
           });
@@ -189,7 +191,6 @@ module.exports = {
       res.status(500).json({ error: "Internal server error" });
     }
   },
-
   getListingsByLimit: (req, res) => {
     try {
       const page = parseInt(req.query.page) || 1;
@@ -307,9 +308,17 @@ module.exports = {
     if (!unique_property_id || !property_status) {
       return res.status(400).json({ error: "Missing required fields" });
     }
+
+    const istDate = moment().format("YYYY-MM-DD");
+    const istTime = moment().format("HH:mm:ss");
+
     pool.query(
-      `UPDATE properties SET property_status = ? WHERE unique_property_id = ?`,
-      [property_status, unique_property_id],
+      `UPDATE properties
+     SET property_status = ?, 
+         updated_date = ?, 
+         updated_time = ? 
+     WHERE unique_property_id = ?`,
+      [property_status, istDate, istTime, unique_property_id],
       (err, result) => {
         if (err) {
           console.error("Error updating status:", err);
@@ -318,7 +327,9 @@ module.exports = {
         if (result.affectedRows === 0) {
           return res.status(404).json({ error: "Property not found" });
         }
-        res.status(200).json({ message: "Status updated successfully" });
+        res
+          .status(200)
+          .json({ message: "Status and IST timestamp updated successfully" });
       }
     );
   },
@@ -330,12 +341,13 @@ module.exports = {
         .status(400)
         .json({ error: "Missing unique_property_id or update fields" });
     }
+    const setFields = Object.keys(updatedFields)
+      .map((field) => `${field} = ?`)
+      .join(", ");
     const updateQuery = `
-        UPDATE properties 
-        SET ${Object.keys(updatedFields)
-          .map((field) => `${field} = ?`)
-          .join(", ")}
-        WHERE unique_property_id = ?`;
+    UPDATE properties 
+    SET ${setFields}, updated_date = CURDATE(), updated_time = CURTIME()
+    WHERE unique_property_id = ?`;
     const values = [...Object.values(updatedFields), unique_property_id];
     pool.query(updateQuery, values, (err, result) => {
       if (err) {
@@ -345,9 +357,9 @@ module.exports = {
       if (result.affectedRows === 0) {
         return res.status(404).json({ error: "Property not found" });
       }
-      res
-        .status(200)
-        .json({ message: "Property listing updated successfully" });
+      res.status(200).json({
+        message: "Property listing and timestamp updated successfully",
+      });
     });
   },
   deleteListing: (req, res) => {
@@ -590,17 +602,27 @@ module.exports = {
     const { property_for, search = "" } = req.query;
     try {
       const query = `
-            SELECT sp.id, sp.property_id, sp.user_id, sp.name, sp.mobile, sp.email, 
-                   sp.searched_on_date, sp.searched_on_time, sp.interested_status, 
-                   sp.property_user_id, sp.searched_filter_desc, sp.shedule_date, 
-                   sp.shedule_time, sp.view_status, 
-                   COALESCE(p.property_for, 'Unknown') AS property_for
-            FROM searched_properties sp
-            LEFT JOIN properties p ON sp.property_id = p.unique_property_id
-            ${property_for ? "WHERE p.property_for = ?" : ""}
-        `;
+      SELECT 
+        sp.id, sp.property_id, sp.user_id, sp.name, sp.mobile, sp.email, 
+        sp.searched_on_date, sp.searched_on_time, sp.interested_status, 
+        sp.property_user_id, sp.searched_filter_desc, sp.shedule_date, 
+        sp.shedule_time, sp.view_status, 
+        COALESCE(p.property_for, 'Unknown') AS property_for,
+        p.property_name,
+
+        -- Owner Details
+        u.id AS owner_user_id, u.name AS owner_name, u.mobile AS owner_mobile, u.user_type AS owner_type,
+        u.email AS owner_email, u.photo AS owner_photo
+
+      FROM searched_properties sp
+      LEFT JOIN properties p ON sp.property_id = p.unique_property_id
+      LEFT JOIN users u ON p.user_id = u.id
+      ${property_for ? "WHERE p.property_for = ?" : ""}
+    `;
+
       const values = property_for ? [property_for] : [];
       const [result] = await pool.promise().query(query, values);
+
       if (result.length === 0) {
         return res.status(404).json({
           message: `No results found for: ${property_for || "All"}`,
@@ -608,6 +630,7 @@ module.exports = {
           data: [],
         });
       }
+
       res.status(200).json({
         message: "Data fetched successfully",
         count: result.length,
@@ -650,7 +673,6 @@ module.exports = {
       ORDER BY property_count DESC
       LIMIT 10
     `;
-
       pool.query(query, [], (err, results) => {
         if (err) {
           console.error("Error fetching top sellers:", err);
@@ -678,7 +700,6 @@ module.exports = {
           return res.status(404).json({ message: "No properties found" });
         }
         const shuffled = results.sort(() => 0.5 - Math.random());
-
         res.status(200).json({
           results: shuffled,
         });

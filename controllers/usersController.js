@@ -19,32 +19,79 @@ module.exports = {
     );
   },
   getAllUsersByType: (req, res) => {
-    const user_type = req.query.user_type ? req.query.user_type : null;
+    const user_type = req.query.user_type || null;
     let sql = "SELECT * FROM users";
     let countSql = "SELECT COUNT(*) AS count FROM users";
     let values = [];
+
     if (user_type) {
       sql += " WHERE user_type = ?";
       countSql += " WHERE user_type = ?";
       values.push(user_type);
     }
+
+    // First fetch user count
     pool.query(countSql, values, (err, countResult) => {
       if (err) {
         console.error("Error fetching user count:", err);
         return res.status(500).json({ error: "Database query failed" });
       }
+
       const userCount = countResult[0].count;
-      pool.query(sql, values, (err, results) => {
+
+      // Then fetch all users
+      pool.query(sql, values, async (err, users) => {
         if (err) {
           console.error("Error fetching users:", err);
           return res.status(500).json({ error: "Database query failed" });
         }
-        res
-          .status(200)
-          .json({ success: true, count: userCount, data: results });
+
+        // Fetch searched_properties for each user
+        try {
+          const userIds = users.map((user) => user.id);
+
+          // Build a single query to get all searched_properties by user_id
+          const placeholders = userIds.map(() => "?").join(",");
+          const searchSql = `SELECT * FROM searched_properties WHERE user_id IN (${placeholders})`;
+
+          pool.query(searchSql, userIds, (err, searchedResults) => {
+            if (err) {
+              console.error("Error fetching searched properties:", err);
+              return res
+                .status(500)
+                .json({ error: "Failed to get searched properties" });
+            }
+
+            // Group searched properties by user_id
+            const groupedSearches = {};
+            searchedResults.forEach((item) => {
+              if (!groupedSearches[item.user_id]) {
+                groupedSearches[item.user_id] = [];
+              }
+              groupedSearches[item.user_id].push(item);
+            });
+
+            // Attach userActivity to each user
+            const enrichedUsers = users.map((user) => ({
+              ...user,
+              userActivity: groupedSearches[user.id] || [],
+            }));
+
+            // Final response
+            res.status(200).json({
+              success: true,
+              count: userCount,
+              data: enrichedUsers,
+            });
+          });
+        } catch (error) {
+          console.error("Unexpected error:", error);
+          res.status(500).json({ error: "Internal Server Error" });
+        }
       });
     });
   },
+
   createUser: async (req, res) => {
     const {
       name,
@@ -150,7 +197,6 @@ module.exports = {
       created_by,
       created_userID,
     } = req.body;
-
     if (!created_userID) {
       return res.status(400).json({ message: "User ID is required" });
     }
@@ -230,21 +276,16 @@ module.exports = {
   },
   updateUser: async (req, res) => {
     const { id, ...fieldsToUpdate } = req.body;
-
     if (!id) {
       return res
         .status(400)
         .json({ message: "User ID is required for update" });
     }
-
     if (Object.keys(fieldsToUpdate).length === 0) {
       return res.status(400).json({ message: "No fields to update" });
     }
-
     try {
       const { name, user_type } = fieldsToUpdate;
-
-      // Check for duplicate (only if name and user_type are being updated)
       if (name && user_type) {
         const duplicateCheckQuery = `
         SELECT * FROM users WHERE name = ? AND user_type = ? AND id != ?
@@ -252,7 +293,6 @@ module.exports = {
         const [results] = await pool
           .promise()
           .query(duplicateCheckQuery, [name, user_type, id]);
-
         if (results.length > 0) {
           return res.status(409).json({
             message:
@@ -260,29 +300,21 @@ module.exports = {
           });
         }
       }
-
-      // Add timestamps
       fieldsToUpdate.updated_date = currentDate;
       fieldsToUpdate.updated_time = currentTime;
-
       const updateFields = Object.keys(fieldsToUpdate)
         .map((field) => `${field} = ?`)
         .join(", ");
-
       const values = Object.values(fieldsToUpdate);
-      values.push(id); // for WHERE clause
-
+      values.push(id);
       const updateQuery = `UPDATE users SET ${updateFields} WHERE id = ?`;
-
       await pool.promise().query(updateQuery, values);
-
       res.status(200).json({ message: "User updated successfully" });
     } catch (err) {
       console.error("Update error:", err);
       res.status(500).json({ message: "Server error" });
     }
   },
-
   deleteUser: async (req, res) => {
     const { id } = req.body;
     if (!id) {
@@ -322,23 +354,19 @@ module.exports = {
       WHERE created_userID = ? 
       GROUP BY user_type
     `;
-
       pool.query(query, [userID], (err, results) => {
         if (err) {
           console.error("Error fetching grouped users:", err);
           return res.status(500).json({ error: "Database query failed" });
         }
-
         const employeesQuery = `
         SELECT * FROM users WHERE created_userID = ?
       `;
-
         pool.query(employeesQuery, [userID], (empErr, empResults) => {
           if (empErr) {
             console.error("Error fetching employees:", empErr);
             return res.status(500).json({ error: "Database query failed" });
           }
-
           res.status(200).json({
             groupedCount: results,
             employees: empResults,
@@ -359,23 +387,19 @@ module.exports = {
       WHERE created_userID = ? 
       GROUP BY user_type
     `;
-
       pool.query(query, [created_userID], (err, results) => {
         if (err) {
           console.error("Error fetching grouped users:", err);
           return res.status(500).json({ error: "Database query failed" });
         }
-
         const employeesQuery = `
         SELECT * FROM users WHERE created_userID = ?
       `;
-
         pool.query(employeesQuery, [created_userID], (empErr, empResults) => {
           if (empErr) {
             console.error("Error fetching employees:", empErr);
             return res.status(500).json({ error: "Database query failed" });
           }
-
           res.status(200).json({
             groupedCount: results,
             employees: empResults,
