@@ -49,7 +49,7 @@ module.exports = {
         .json({ message: "Mobile and password are required" });
     }
 
-    const query = `SELECT * FROM users WHERE mobile = ?`;
+    const query = `SELECT * FROM users WHERE mobile = ? AND user_type != 2`;
 
     pool.query(query, [mobile], async (err, results) => {
       if (err) {
@@ -61,7 +61,6 @@ module.exports = {
       }
 
       const user = results[0];
-
       if (!user.password) {
         return res.status(500).json({ message: "Password not found for user" });
       }
@@ -240,6 +239,136 @@ module.exports = {
       return res
         .status(500)
         .json({ message: "Failed to send WhatsApp message" });
+    }
+  },
+  AuthLoginNew: async (req, res) => {
+    const { mobile } = req.body;
+    try {
+      const result = await pool.execute(
+        "SELECT * FROM users WHERE mobile = 6302816551",
+        [mobile]
+      );
+      console.log("result: ", result);
+      const rows = result[0];
+
+      if (rows.length === 0) {
+        return res.status(404).json({
+          status: "error_user_not_found",
+          message: "User not found",
+        });
+      }
+
+      const user = rows[0];
+      const user_id = user.id.toString();
+
+      const accessToken = jwt.sign({ user_id }, process.env.JWT_SECRET, {
+        expiresIn: "7d",
+      });
+
+      const user_details = {
+        user_id,
+        name: user.name,
+        user_type: user.user_type,
+        mobile: user.mobile,
+      };
+
+      return res.status(200).json({
+        status: "success",
+        message: "Login successful",
+        user_details,
+        accessToken,
+      });
+    } catch (error) {
+      console.error("Login Error:", error);
+      return res.status(500).json({
+        status: "error",
+        message: "Internal server error",
+      });
+    }
+  },
+
+  AuthRegisterNew: async (req, res) => {
+    const { userType, name, mobile, city } = req.body;
+    try {
+      const userTypeResult = await pool.execute(
+        "SELECT * FROM user_types WHERE login_type = ?",
+        [userType]
+      );
+      const userTypeRows = userTypeResult[0];
+      const userTypeData = userTypeRows[0];
+
+      if (!userTypeData) {
+        return res.status(400).json({
+          status: "error_invalid_user_type",
+          message: "Invalid user type provided",
+        });
+      }
+
+      const user_type_id = userTypeData.login_type_id;
+
+      const cityResult = await pool.execute(
+        "SELECT * FROM cities WHERE id = ?",
+        [city]
+      );
+      const cityRows = cityResult[0];
+      const cityData = cityRows[0];
+
+      if (!cityData) {
+        return res.status(404).json({
+          status: "error_city_not_found",
+          message: "City not found",
+        });
+      }
+
+      const existingUserResult = await pool.execute(
+        "SELECT * FROM users WHERE mobile = ?",
+        [mobile]
+      );
+      const existingUserRows = existingUserResult[0];
+      const existingUser = existingUserRows[0];
+
+      if (existingUser) {
+        return res.status(409).json({
+          status: "error_user_exists",
+          message: "User already exists",
+        });
+      }
+
+      const created_date = new Date();
+      const created_time = new Date();
+
+      const insertResult = await pool.execute(
+        "INSERT INTO users (user_type, name, mobile, city, created_date, created_time) VALUES (?, ?, ?, ?, ?, ?)",
+        [user_type_id, name, mobile, cityData.name, created_date, created_time]
+      );
+
+      console.log("insertResult: ", insertResult);
+      const insertInfo = insertResult[0];
+      const user_id = insertInfo.insertId.toString();
+
+      const accessToken = jwt.sign({ user_id }, process.env.JWT_SECRET, {
+        expiresIn: "7d",
+      });
+
+      const user_details = {
+        user_id,
+        user_type: user_type_id,
+        name,
+        mobile,
+      };
+
+      return res.status(201).json({
+        status: "success",
+        message: "User created successfully",
+        user_details,
+        accessToken,
+      });
+    } catch (error) {
+      console.error("Register Error:", error);
+      return res.status(500).json({
+        status: "error",
+        message: "Internal server error",
+      });
     }
   },
 };
