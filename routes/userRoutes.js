@@ -12,6 +12,8 @@ const userController = require("../controllers/usersController");
 
 router.get("/getAllUsersCount", userController.getAllUsersCount);
 router.get("/getAllUsersByType", userController.getAllUsersByType);
+router.get("/getAllUsersByTypeSearch", userController.getAllUsersByTypeSearch);
+
 router.get("/getAllEmp/:userID", userController.getAllEmp);
 router.get(
   "/getAllUsersUnder/:created_userID",

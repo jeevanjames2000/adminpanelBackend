@@ -197,7 +197,6 @@ module.exports = {
       google_address,
       sub_type,
     } = req.body;
-
     const payload = {
       channelId: "67a9e14542596631a8cfc87b",
       channelType: "whatsapp",
