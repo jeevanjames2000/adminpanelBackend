@@ -196,6 +196,16 @@ module.exports = {
       google_address,
       sub_type,
     } = req.body;
+
+    console.log(
+      name,
+      mobile,
+      ownerName,
+      ownerMobile,
+      property_name,
+      google_address,
+      sub_type
+    );
     const payload = {
       channelId: "67a9e14542596631a8cfc87b",
       channelType: "whatsapp",
@@ -210,7 +220,7 @@ module.exports = {
           bodyValues: {
             name,
             phone: mobile,
-            variable_3: property_subtype || sub_type || "Property",
+            variable_3: sub_type || "Property",
             variable_4: property_name,
             variable_5: google_address?.split(",")[0]?.trim() || "",
           },
@@ -231,7 +241,6 @@ module.exports = {
         { headers }
       );
 
-      console.log("response: ", response);
       if (response.status === 202) {
         return res.status(200).json({ message: "WhatsApp message sent!" });
       }

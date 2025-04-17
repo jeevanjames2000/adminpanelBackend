@@ -28,6 +28,35 @@ module.exports = {
       res.status(500).json({ error: "Internal server error" });
     }
   },
+  getSingleProperty: async (req, res) => {
+    const { unique_property_id } = req.query;
+
+    if (!unique_property_id) {
+      return res.status(400).json({ error: "unique_property_id is required" });
+    }
+    try {
+      pool.query(
+        `SELECT * FROM properties WHERE unique_property_id = ? LIMIT 1`,
+        [unique_property_id],
+        (err, results) => {
+          if (err) {
+            console.error("Error fetching property:", err);
+            return res.status(500).json({ error: "Database query failed" });
+          }
+
+          if (results.length === 0) {
+            return res.status(404).json({ error: "Property not found" });
+          }
+
+          res.status(200).json({ property: results[0] });
+        }
+      );
+    } catch (error) {
+      console.error("Server error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  },
+
   getAllPropertiesByType: async (req, res) => {
     try {
       const {
