@@ -11,7 +11,35 @@ const awsRoutes = require("./routes/awsRoutes");
 const app = express();
 
 // Middleware
-app.use(cors({ origin: "*" }));
+const allowedOrigins = [
+  "https://testapi.meetowner.in",
+  "https://preprod.meetowner.in",
+  "https://admin.meetowner.in",
+  "http://localhost:3002",
+  "http://localhost:3001",
+  "http://localhost:3003",
+  "http://localhost:5173",
+  "*",
+];
+
+app.use(
+  cors({
+    origin: function (origin, callback) {
+      // Allow requests with no origin (like mobile apps or curl)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) {
+        return callback(null, true);
+      } else {
+        return callback(new Error("Not allowed by CORS"));
+      }
+    },
+    credentials: true,
+    allowedHeaders:
+      "Origin, X-Requested-With, Content-Type, Accept, Authorization",
+    exposedHeaders: ["Content-Disposition"],
+  })
+);
+
 app.use(express.json());
 
 // Main Routes
