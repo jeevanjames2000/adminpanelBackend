@@ -274,12 +274,9 @@ module.exports = {
       const accessToken = jwt.sign({ user_id }, process.env.JWT_SECRET, {
         expiresIn: "7d",
       });
-
       const user_details = {
         user_id,
-        name: user.name,
-        user_type: user.user_type,
-        mobile: user.mobile,
+        ...user,
       };
 
       return res.status(200).json({

@@ -28,20 +28,17 @@ module.exports = {
       countSql += " WHERE user_type = ?";
       values.push(user_type);
     }
-
     pool.query(countSql, values, (err, countResult) => {
       if (err) {
         console.error("Error fetching user count:", err);
         return res.status(500).json({ error: "Database query failed" });
       }
       const userCount = countResult[0].count;
-
       pool.query(sql, values, async (err, users) => {
         if (err) {
           console.error("Error fetching users:", err);
           return res.status(500).json({ error: "Database query failed" });
         }
-
         try {
           const userIds = users.map((user) => user.id);
           if (userIds.length === 0) {
@@ -51,7 +48,6 @@ module.exports = {
               data: [],
             });
           }
-
           const placeholders = userIds.map(() => "?").join(",");
           const searchSql = `
   SELECT 
@@ -68,7 +64,6 @@ module.exports = {
     AND sp.property_id != '' 
     AND sp.property_id != '0'
 `;
-
           pool.query(searchSql, userIds, (err, searchedResults) => {
             if (err) {
               console.error("Error fetching searched properties:", err);
@@ -76,7 +71,6 @@ module.exports = {
                 .status(500)
                 .json({ error: "Failed to get searched properties" });
             }
-
             const groupedSearches = {};
             searchedResults.forEach((item) => {
               if (!groupedSearches[item.user_id]) {
@@ -84,12 +78,10 @@ module.exports = {
               }
               groupedSearches[item.user_id].push(item);
             });
-
             const enrichedUsers = users.map((user) => ({
               ...user,
               userActivity: groupedSearches[user.id] || [],
             }));
-
             res.status(200).json({
               success: true,
               count: userCount,
@@ -109,42 +101,34 @@ module.exports = {
     let countSql = "SELECT COUNT(*) AS count FROM users";
     let whereClauses = [];
     let values = [];
-
     if (user_type) {
       whereClauses.push("user_type = ?");
       values.push(user_type);
     }
-
     if (name) {
       whereClauses.push("name LIKE ?");
       values.push(`%${name}%`);
     }
-
     if (search) {
       whereClauses.push("(name LIKE ? OR mobile LIKE ?)");
       values.push(`%${search}%`, `%${search}%`);
     }
-
     if (whereClauses.length > 0) {
       const whereStr = " WHERE " + whereClauses.join(" AND ");
       sql += whereStr;
       countSql += whereStr;
     }
-
     pool.query(countSql, values, (err, countResult) => {
       if (err) {
         console.error("Error fetching user count:", err);
         return res.status(500).json({ error: "Database query failed" });
       }
-
       const userCount = countResult[0].count;
-
       pool.query(sql, values, async (err, users) => {
         if (err) {
           console.error("Error fetching users:", err);
           return res.status(500).json({ error: "Database query failed" });
         }
-
         try {
           const userIds = users.map((user) => user.id);
           if (userIds.length === 0) {
@@ -154,7 +138,6 @@ module.exports = {
               data: [],
             });
           }
-
           const placeholders = userIds.map(() => "?").join(",");
           let searchSql = `
           SELECT 
@@ -171,14 +154,11 @@ module.exports = {
             AND sp.property_id != '' 
             AND sp.property_id != '0'
         `;
-
           let searchValues = [...userIds];
-
           if (search) {
             searchSql += ` AND (p.property_name LIKE ? OR p.google_address LIKE ?)`;
             searchValues.push(`%${search}%`, `%${search}%`, `%${search}%`);
           }
-
           pool.query(searchSql, searchValues, (err, searchedResults) => {
             if (err) {
               console.error("Error fetching searched properties:", err);
@@ -186,7 +166,6 @@ module.exports = {
                 .status(500)
                 .json({ error: "Failed to get searched properties" });
             }
-
             const groupedSearches = {};
             searchedResults.forEach((item) => {
               if (!groupedSearches[item.user_id]) {
@@ -194,12 +173,10 @@ module.exports = {
               }
               groupedSearches[item.user_id].push(item);
             });
-
             const enrichedUsers = users.map((user) => ({
               ...user,
               userActivity: groupedSearches[user.id] || [],
             }));
-
             res.status(200).json({
               success: true,
               count: userCount,
@@ -397,6 +374,7 @@ module.exports = {
   },
   updateUser: async (req, res) => {
     const { id, ...fieldsToUpdate } = req.body;
+    console.log("fieldsToUpdate: ", fieldsToUpdate);
     if (!id) {
       return res
         .status(400)
@@ -406,7 +384,7 @@ module.exports = {
       return res.status(400).json({ message: "No fields to update" });
     }
     try {
-      const { name, user_type } = fieldsToUpdate;
+      const { name, user_type, password } = fieldsToUpdate;
       if (name && user_type) {
         const duplicateCheckQuery = `
         SELECT * FROM users WHERE name = ? AND user_type = ? AND id != ?
@@ -420,6 +398,10 @@ module.exports = {
               "Another user with the same name and user_type already exists",
           });
         }
+      }
+      if (password) {
+        const salt = await bcrypt.genSalt(10);
+        fieldsToUpdate.password = await bcrypt.hash(password, salt);
       }
       fieldsToUpdate.updated_date = currentDate;
       fieldsToUpdate.updated_time = currentTime;
@@ -530,6 +512,31 @@ module.exports = {
     } catch (error) {
       console.error("Unexpected server error:", error);
       res.status(500).json({ error: "Server error" });
+    }
+  },
+  getProfileData: (req, res) => {
+    const { user_id } = req.query;
+    if (!user_id) {
+      return res.status(400).json({ error: "user_id is required" });
+    }
+    try {
+      pool.query(
+        `SELECT * FROM users WHERE id = ? LIMIT 1`,
+        [user_id],
+        (err, results) => {
+          if (err) {
+            console.error("Error fetching profile:", err);
+            return res.status(500).json({ error: "Database query failed" });
+          }
+          if (results.length === 0) {
+            return res.status(404).json({ error: "Property not found" });
+          }
+          res.status(200).json(results[0]);
+        }
+      );
+    } catch (error) {
+      console.error("Server error:", error);
+      res.status(500).json({ error: "Internal server error" });
     }
   },
 };

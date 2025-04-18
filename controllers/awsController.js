@@ -260,15 +260,19 @@ module.exports = {
     }
   },
   uploadAdImage: async (req, res) => {
-    if (!req.file)
+    if (!req.file) {
       return res.status(400).json({ message: "No image uploaded" });
-
-    // const { order } = req.body;
-    // if (!order) {
-    //   return res.status(400).json({ message: "Order number is required" });
-    // }
+    }
 
     try {
+      const { order, user_id, property_id } = req.body; // ✅ Get values from body
+
+      if (!order || !user_id) {
+        return res
+          .status(400)
+          .json({ message: "Order number and User ID are required" });
+      }
+
       const id = uuidv4();
       const key = `adImages/${id}-${req.file.originalname}`;
       const url = await uploadToS3(req.file.buffer, req.file.mimetype, key);
@@ -285,7 +289,7 @@ module.exports = {
         url,
         parseInt(order),
         property_id || null,
-        user_id || null,
+        user_id,
         created_date,
       ];
 
@@ -294,6 +298,7 @@ module.exports = {
           console.error("DB insert failed:", err);
           return res.status(500).json({ error: "Database insert failed" });
         }
+
         res.status(200).json({
           message: "Ad image uploaded and saved",
           data: {
@@ -309,6 +314,47 @@ module.exports = {
     } catch (err) {
       console.error("Upload error:", err);
       res.status(500).json({ error: "Upload failed" });
+    }
+  },
+  deleteAdImage: async (req, res) => {
+    const { id } = req.params;
+
+    try {
+      // 1. Fetch the file record from the DB
+      const [rows] = await pool
+        .promise()
+        .query("SELECT * FROM ad_videos WHERE id = ?", [id]);
+
+      if (rows.length === 0) {
+        return res.status(404).json({ message: "File not found in database" });
+      }
+
+      const video = rows[0];
+      const videoUrl = video.video_url;
+
+      // 2. Extract the S3 key from URL
+      const key = decodeURIComponent(new URL(videoUrl).pathname.substring(1)); // remove leading "/"
+
+      // 3. Delete from S3
+      const command = new DeleteObjectCommand({
+        Bucket: BUCKET_NAME,
+        Key: key,
+      });
+
+      await s3.send(command);
+
+      // 4. Delete the DB record
+      await pool.promise().query("DELETE FROM ad_videos WHERE id = ?", [id]);
+
+      // 5. Respond
+      res.status(200).json({
+        message: "Ad image/video deleted successfully",
+        deleted_id: id,
+        deleted_key: key,
+      });
+    } catch (err) {
+      console.error("Delete error:", err);
+      res.status(500).json({ error: "Delete failed", details: err.message });
     }
   },
 

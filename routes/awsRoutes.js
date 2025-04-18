@@ -33,5 +33,6 @@ router.post(
   awsController.uploadAdVideo
 );
 router.get("/getAllAdVideos", awsController.getAllAdVideos);
+router.delete("/deleteAds/:id", awsController.deleteAdImage);
 
 module.exports = router;
