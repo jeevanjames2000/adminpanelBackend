@@ -759,4 +759,7 @@ module.exports = {
       res.status(500).json({ message: "Internal Server Error" });
     }
   },
+  uploadAdsImages:(req,res)=>{
+    const {photo,property_id,order}=req.body
+  }
 };
