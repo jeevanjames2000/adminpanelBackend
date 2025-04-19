@@ -25,4 +25,5 @@ router.post("/createEmployee", userController.createEmployee);
 router.post("/updateUser", userController.updateUser);
 router.delete("/deleteUser", userController.deleteUser);
 router.get("/getProfile", userController.getProfileData);
+router.post("/uploadUserImage", userController.uploadUserImage);
 module.exports = router;

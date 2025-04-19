@@ -7,10 +7,11 @@ const userRoutes = require("./routes/userRoutes");
 const listingRoutes = require("./routes/listingRoutes");
 const favRoutes = require("./routes/favRoutes");
 const enquiryRoutes = require("./routes/enquiryRoutes");
-// const awsRoutes = require("./routes/awsRoutes");
+const awsRoutes = require("./routes/awsRoutes");
 const adRoutes = require("./routes/adsRoutes");
 const app = express();
-
+const path = require("path");
+app.use(express.json());
 // Middleware
 const allowedOrigins = [
   "https://testapi.meetowner.in",
@@ -21,6 +22,7 @@ const allowedOrigins = [
   "http://localhost:3003",
   "http://localhost:5173",
 ];
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
 const corsOptions = {
   origin: function (origin, callback) {
@@ -38,8 +40,6 @@ const corsOptions = {
 };
 
 app.use(cors(corsOptions));
-const path = require("path");
-app.use(express.json());
 
 // Main Routes
 app.use("/auth/v1", authRoutes);
@@ -50,7 +50,7 @@ app.use("/user", userRoutes);
 app.use("/listings", listingRoutes);
 app.use("/fav", favRoutes);
 app.use("/enquiry", enquiryRoutes);
-// app.use("/awsS3", awsRoutes);
+app.use("/awsS3", awsRoutes);
 app.use("/adAssets", adRoutes);
 
 const PORT = process.env.PORT || 5000;

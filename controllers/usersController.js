@@ -3,6 +3,23 @@ const bcrypt = require("bcrypt");
 const moment = require("moment");
 const currentDate = moment().format("YYYY-MM-DD");
 const currentTime = moment().format("HH:mm:ss");
+const uploadDir = "./uploads";
+const multer = require("multer");
+const path = require("path");
+const fs = require("fs");
+const storage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueName = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, uniqueName + path.extname(file.originalname));
+  },
+});
+const upload = multer({ storage });
 module.exports = {
   getAllUsersCount: async (req, res) => {
     pool.query(
@@ -539,4 +556,26 @@ module.exports = {
       res.status(500).json({ error: "Internal server error" });
     }
   },
+  uploadUserImage: [
+    upload.single("photo"),
+    (req, res) => {
+      const { user_id } = req.body;
+      if (!req.file || !user_id) {
+        return res.status(400).json({ message: "Missing file or id" });
+      }
+      const fileUrl = `/uploads/${req.file.filename}`;
+      const query = "UPDATE users SET photo = ? WHERE id = ?";
+      pool.query(query, [fileUrl, user_id], (err, result) => {
+        if (err) {
+          console.error("DB update error:", err);
+          return res.status(500).json({ message: "Error updating user photo" });
+        }
+        return res.status(200).json({
+          message: "Image uploaded and user photo updated",
+          photo: fileUrl,
+          user_id,
+        });
+      });
+    },
+  ],
 };
