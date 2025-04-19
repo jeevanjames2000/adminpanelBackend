@@ -563,7 +563,7 @@ module.exports = {
       if (!req.file || !user_id) {
         return res.status(400).json({ message: "Missing file or id" });
       }
-      const fileUrl = `/uploads/${req.file.filename}`;
+      const fileUrl = `uploads/${req.file.filename}`;
       const query = "UPDATE users SET photo = ? WHERE id = ?";
       pool.query(query, [fileUrl, user_id], (err, result) => {
         if (err) {
