@@ -738,4 +738,25 @@ module.exports = {
       res.status(500).json({ message: "Internal Server Error" });
     }
   },
+  getAroundThisProperty: (req, res) => {
+    const { id } = req.query;
+    try {
+      const query = `SELECT * FROM around_this_property WHERE unique_property_id = ?`;
+      pool.query(query, [id], (err, results) => {
+        if (err) {
+          console.error("Error fetching properties:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        if (results.length === 0) {
+          return res.status(404).json({ message: "No properties found" });
+        }
+        res.status(200).json({
+          results,
+        });
+      });
+    } catch (error) {
+      console.error("Error fetching random properties:", error);
+      res.status(500).json({ message: "Internal Server Error" });
+    }
+  },
 };
