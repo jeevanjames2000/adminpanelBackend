@@ -62,6 +62,7 @@ module.exports = {
       }
 
       const user = results[0];
+      console.log("user: ", user);
       if (!user.password) {
         return res.status(500).json({ message: "Password not found for user" });
       }
@@ -293,7 +294,6 @@ module.exports = {
       });
     }
   },
-
   AuthRegisterNew: async (req, res) => {
     const { userType, name, mobile, city } = req.body;
     try {

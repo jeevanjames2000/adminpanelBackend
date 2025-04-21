@@ -4,7 +4,7 @@ const fs = require("fs");
 const pool = require("../config/db");
 const { v4: uuidv4 } = require("uuid");
 
-const adAssetsDir = "./uploads/adAssets";
+const adAssetsDir = "./uploads";
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     if (!fs.existsSync(adAssetsDir)) {
@@ -23,7 +23,7 @@ module.exports = {
     upload.single("photo"),
     (req, res) => {
       const { property_id, order, user_id } = req.body;
-      const videoUrl = `https://testapi.meetowner.in/uploads/adAssets/${req.file.filename}`;
+      const videoUrl = `uploads/${req.file.filename}`;
       const query = `
         INSERT INTO ad_videos (id,video_url, ad_order, property_id, user_id, created_date)
         VALUES (?,?, ?, ?, ?, NOW())
@@ -49,18 +49,18 @@ module.exports = {
     },
   ],
   getAdsImages: (req, res) => {
-    const dirPath = path.join(__dirname, "../uploads/adAssets");
+    const dirPath = path.join(__dirname, "../uploads");
     fs.readdir(dirPath, (err, files) => {
       if (err) {
         return res.status(500).json({ message: "Failed to read images" });
       }
-      const images = files.map((file) => `/uploads/adAssets/${file}`);
+      const images = files.map((file) => `/uploads/${file}`);
       res.status(200).json({ images });
     });
   },
   deleteAdImage: (req, res) => {
     const { filename } = req.params;
-    const filePath = path.join(__dirname, "../uploads/adAssets", filename);
+    const filePath = path.join(__dirname, "../uploads", filename);
     fs.unlink(filePath, (err) => {
       if (err) {
         console.error("Failed to delete image:", err);

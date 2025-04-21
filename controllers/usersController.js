@@ -36,28 +36,37 @@ module.exports = {
     );
   },
   getAllUsersByType: (req, res) => {
-    const { user_type, name, search } = req.query.user_type || null;
+    const { user_type, name, search } = req.query;
+
     let sql = "SELECT * FROM users";
     let countSql = "SELECT COUNT(*) AS count FROM users";
     let values = [];
+    let countValues = [];
+
     if (user_type) {
       sql += " WHERE user_type = ?";
       countSql += " WHERE user_type = ?";
       values.push(user_type);
+      countValues.push(user_type);
     }
-    pool.query(countSql, values, (err, countResult) => {
+
+    pool.query(countSql, countValues, (err, countResult) => {
       if (err) {
         console.error("Error fetching user count:", err);
         return res.status(500).json({ error: "Database query failed" });
       }
+
       const userCount = countResult[0].count;
+
       pool.query(sql, values, async (err, users) => {
         if (err) {
           console.error("Error fetching users:", err);
           return res.status(500).json({ error: "Database query failed" });
         }
+
         try {
           const userIds = users.map((user) => user.id);
+
           if (userIds.length === 0) {
             return res.status(200).json({
               success: true,
@@ -65,22 +74,24 @@ module.exports = {
               data: [],
             });
           }
+
           const placeholders = userIds.map(() => "?").join(",");
           const searchSql = `
-  SELECT 
-    sp.*, 
-    p.property_name, 
-    p.location_id, 
-    p.google_address 
-  FROM searched_properties sp 
-  LEFT JOIN properties p 
-    ON sp.property_id = p.unique_property_id 
-  WHERE 
-    sp.user_id IN (${placeholders}) 
-    AND sp.property_id IS NOT NULL 
-    AND sp.property_id != '' 
-    AND sp.property_id != '0'
-`;
+          SELECT 
+            sp.*, 
+            p.property_name, 
+            p.location_id, 
+            p.google_address 
+          FROM searched_properties sp 
+          LEFT JOIN properties p 
+            ON sp.property_id = p.unique_property_id 
+          WHERE 
+            sp.user_id IN (${placeholders}) 
+            AND sp.property_id IS NOT NULL 
+            AND sp.property_id != '' 
+            AND sp.property_id != '0'
+        `;
+
           pool.query(searchSql, userIds, (err, searchedResults) => {
             if (err) {
               console.error("Error fetching searched properties:", err);
@@ -88,6 +99,7 @@ module.exports = {
                 .status(500)
                 .json({ error: "Failed to get searched properties" });
             }
+
             const groupedSearches = {};
             searchedResults.forEach((item) => {
               if (!groupedSearches[item.user_id]) {
@@ -95,10 +107,12 @@ module.exports = {
               }
               groupedSearches[item.user_id].push(item);
             });
+
             const enrichedUsers = users.map((user) => ({
               ...user,
               userActivity: groupedSearches[user.id] || [],
             }));
+
             res.status(200).json({
               success: true,
               count: userCount,

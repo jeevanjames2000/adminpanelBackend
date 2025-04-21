@@ -496,7 +496,7 @@ module.exports = {
   getLatestProperties: async (req, res) => {
     const { property_for } = req.query;
     try {
-      let query = `SELECT * FROM properties WHERE property_status = 1`;
+      let query = `SELECT * FROM properties WHERE property_status = 1 AND sub_type != "PLOT"`;
       let queryParams = [];
       if (property_for) {
         query += ` AND property_for = ?`;
@@ -759,7 +759,7 @@ module.exports = {
       res.status(500).json({ message: "Internal Server Error" });
     }
   },
-  uploadAdsImages:(req,res)=>{
-    const {photo,property_id,order}=req.body
-  }
+  uploadAdsImages: (req, res) => {
+    const { photo, property_id, order } = req.body;
+  },
 };

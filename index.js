@@ -45,13 +45,13 @@ app.use(cors(corsOptions));
 app.use("/auth/v1", authRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 
-app.use("/api", Routes);
-app.use("/user", userRoutes);
-app.use("/listings", listingRoutes);
-app.use("/fav", favRoutes);
-app.use("/enquiry", enquiryRoutes);
-app.use("/awsS3", awsRoutes);
-app.use("/adAssets", adRoutes);
+app.use("/api/v1", Routes);
+app.use("/user/v1", userRoutes);
+app.use("/listings/v1", listingRoutes);
+app.use("/fav/v1", favRoutes);
+app.use("/enquiry/v1", enquiryRoutes);
+app.use("/awsS3/v1", awsRoutes);
+app.use("/adAssets/v1", adRoutes);
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
