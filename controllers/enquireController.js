@@ -35,6 +35,29 @@ module.exports = {
       return res.status(200).json({ results });
     });
   },
+  getUserContactSellers: (req, res) => {
+    const { user_id } = req.query;
+
+    if (!user_id) {
+      return res.status(400).json({ error: "User ID is required" });
+    }
+    const query = `SELECT * FROM contact_seller WHERE user_id = ? ORDER BY id DESC`;
+
+    pool.query(query, [user_id], (err, results) => {
+      if (err) {
+        console.error("Error fetching contact sellers for user:", err);
+        return res.status(500).json({ error: "Database error" });
+      }
+
+      if (results.length === 0) {
+        return res
+          .status(404)
+          .json({ message: "No contact sellers found for this user" });
+      }
+
+      return res.status(200).json({ results });
+    });
+  },
   postEnquiry: (req, res) => {
     const {
       property_id,

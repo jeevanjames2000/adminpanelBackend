@@ -8,7 +8,7 @@ module.exports = {
     const query = `
     SELECT * 
     FROM favourites 
-    WHERE user_id = ?
+    WHERE User_user_id = ?
     ORDER BY id DESC
   `;
 
@@ -21,35 +21,41 @@ module.exports = {
   },
 
   postIntrest: (req, res) => {
-    const { user_id, property_id, status } = req.body;
+    const { User_user_id, unique_property_id, status } = req.body;
 
-    if (!user_id || !property_id) {
+    if (!User_user_id || !unique_property_id) {
       return res
         .status(400)
         .json({ message: "User ID and Property ID required" });
     }
 
     if (status === 1) {
-      const deleteQuery = `DELETE FROM favourites WHERE user_id = ? AND property_id = ?`;
-      pool.query(deleteQuery, [user_id, property_id], (err, result) => {
-        if (err) {
-          console.error("Error deleting favourite:", err);
-          return res.status(500).json({ error: "Database error" });
-        }
+      const deleteQuery = `DELETE FROM favourites WHERE User_user_id = ? AND unique_property_id = ?`;
+      pool.query(
+        deleteQuery,
+        [User_user_id, unique_property_id],
+        (err, result) => {
+          if (err) {
+            console.error("Error deleting favourite:", err);
+            return res.status(500).json({ error: "Database error" });
+          }
 
-        if (result.affectedRows === 0) {
-          return res.status(404).json({ message: "Favourite not found" });
-        }
+          if (result.affectedRows === 0) {
+            return res.status(404).json({ message: "Favourite not found" });
+          }
 
-        return res
-          .status(200)
-          .json({ message: "Favourite removed successfully" });
-      });
+          return res
+            .status(200)
+            .json({ message: "Favourite removed successfully" });
+        }
+      );
     } else {
       const searched_on_date = moment().format("YYYY-MM-DD");
       const searched_on_time = moment().format("HH:mm:ss");
 
-      const { status, ...filteredBody } = req.body;
+      // Remove status, updated_date, updated_on, and user
+      const { status, updated_date, updated_on, user, ...filteredBody } =
+        req.body;
 
       const data = {
         ...filteredBody,
@@ -60,6 +66,7 @@ module.exports = {
       const columns = Object.keys(data);
       const values = Object.values(data);
       const placeholders = columns.map(() => "?").join(", ");
+
       const insertQuery = `INSERT INTO favourites (${columns.join(
         ", "
       )}) VALUES (${placeholders})`;
@@ -78,14 +85,14 @@ module.exports = {
   },
 
   deleteIntrest: (req, res) => {
-    const { user_id, property_id } = req.body;
-    if (!user_id || !property_id) {
+    const { user_id, unique_property_id } = req.body;
+    if (!user_id || !unique_property_id) {
       return res
         .status(400)
         .json({ message: "User ID and Property ID required" });
     }
-    const checkQuery = `SELECT * FROM favourites WHERE user_id = ? AND property_id = ?`;
-    pool.query(checkQuery, [user_id, property_id], (err, results) => {
+    const checkQuery = `SELECT * FROM favourites WHERE User_user_id = ? AND unique_property_id = ?`;
+    pool.query(checkQuery, [user_id, unique_property_id], (err, results) => {
       if (err) {
         console.error("Error checking favourite:", err);
         return res.status(500).json({ error: "Database error" });
@@ -93,8 +100,8 @@ module.exports = {
       if (results.length === 0) {
         return res.status(404).json({ message: "Favourite not found" });
       }
-      const deleteQuery = `DELETE FROM favourites WHERE user_id = ? AND property_id = ?`;
-      pool.query(deleteQuery, [user_id, property_id], (err, result) => {
+      const deleteQuery = `DELETE FROM favourites WHERE User_user_id = ? AND unique_property_id = ?`;
+      pool.query(deleteQuery, [user_id, unique_property_id], (err, result) => {
         if (err) {
           console.error("Error deleting favourite:", err);
           return res.status(500).json({ error: "Database error" });
