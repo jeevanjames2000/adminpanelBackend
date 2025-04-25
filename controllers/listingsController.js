@@ -1,5 +1,76 @@
 const pool = require("../config/db");
 const moment = require("moment");
+function shuffleProperties(properties, batchSize = 5) {
+  if (properties.length <= 1) {
+    return properties;
+  }
+  const firstNameMap = new Map();
+  for (const prop of properties) {
+    const firstName = getFirstName(prop.property_name);
+    if (!firstNameMap.has(firstName)) {
+      firstNameMap.set(firstName, []);
+    }
+    firstNameMap.get(firstName).push(prop);
+  }
+  if (firstNameMap.size === 1) {
+    console.warn(
+      "All properties have the same first name. Cannot shuffle to avoid consecutive first names."
+    );
+    return properties;
+  }
+  const result = [];
+  let availableFirstNames = Array.from(firstNameMap.keys());
+  while (result.length < properties.length && availableFirstNames.length > 0) {
+    const batch = [];
+    const usedFirstNames = new Set();
+    for (const firstName of availableFirstNames) {
+      if (batch.length >= batchSize) break;
+      const props = firstNameMap.get(firstName);
+      if (props.length > 0) {
+        const prop = props.shift();
+        batch.push(prop);
+        usedFirstNames.add(firstName);
+      }
+    }
+    for (let i = batch.length - 1; i > 0; i--) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [batch[i], batch[j]] = [batch[j], batch[i]];
+    }
+    if (result.length > 0 && batch.length > 0) {
+      const lastFirstName = getFirstName(
+        result[result.length - 1].property_name
+      );
+      const firstBatchFirstName = getFirstName(batch[0].property_name);
+      if (lastFirstName === firstBatchFirstName) {
+        batch.push(batch.shift());
+      }
+    }
+    result.push(...batch);
+    for (const firstName of usedFirstNames) {
+      if (firstNameMap.get(firstName).length === 0) {
+        firstNameMap.delete(firstName);
+      }
+    }
+    availableFirstNames = Array.from(firstNameMap.keys());
+  }
+  checkConsecutiveFirstNames(result);
+  return result;
+}
+function getFirstName(propertyName) {
+  if (!propertyName || typeof propertyName !== "string") return "";
+  return propertyName.trim().split(" ")[0].toLowerCase();
+}
+function checkConsecutiveFirstNames(properties) {
+  let hasConsecutive = false;
+  for (let i = 0; i < properties.length - 1; i++) {
+    const currentFirstName = getFirstName(properties[i].property_name);
+    const nextFirstName = getFirstName(properties[i + 1].property_name);
+    if (currentFirstName && currentFirstName === nextFirstName) {
+      hasConsecutive = true;
+    }
+  }
+  return hasConsecutive;
+}
 module.exports = {
   getAllProperties: async (req, res) => {
     try {
@@ -30,7 +101,6 @@ module.exports = {
   },
   getSingleProperty: async (req, res) => {
     const { unique_property_id } = req.query;
-
     if (!unique_property_id) {
       return res.status(400).json({ error: "unique_property_id is required" });
     }
@@ -43,11 +113,9 @@ module.exports = {
             console.error("Error fetching property:", err);
             return res.status(500).json({ error: "Database query failed" });
           }
-
           if (results.length === 0) {
             return res.status(404).json({ error: "Property not found" });
           }
-
           res.status(200).json({ property: results[0] });
         }
       );
@@ -56,7 +124,6 @@ module.exports = {
       res.status(500).json({ error: "Internal server error" });
     }
   },
-
   getAllPropertiesByType: async (req, res) => {
     try {
       const {
@@ -146,7 +213,7 @@ module.exports = {
       } else if (priceFilter === "Price: High to Low") {
         orderBy = "ORDER BY CAST(p.property_cost AS DECIMAL) DESC";
       }
-      const limit = 15;
+      const limit = 150;
       const pageNumber = parseInt(page) || 1;
       const offset = (pageNumber - 1) * limit;
       const countQuery = `
@@ -190,14 +257,12 @@ module.exports = {
               updated_time,
               ...rest
             } = row;
-
             const formattedDate = updated_date
               ? moment(updated_date).format("YYYY-MM-DD")
               : null;
             const formattedTime = updated_time
               ? moment(updated_time, "HH:mm:ss").format("HH:mm:ss")
               : null;
-
             return {
               ...rest,
               updated_date: formattedDate,
@@ -205,13 +270,13 @@ module.exports = {
               user: { name, email, mobile, photo, user_type },
             };
           });
-
+          const shuffled = shuffleProperties(properties, 10);
           res.status(200).json({
             total_count,
             current_page: pageNumber,
             total_pages,
-            current_count: properties.length,
-            properties,
+            current_count: shuffled.length,
+            properties: shuffled,
           });
         });
       });
@@ -337,10 +402,8 @@ module.exports = {
     if (!unique_property_id || !property_status) {
       return res.status(400).json({ error: "Missing required fields" });
     }
-
     const istDate = moment().format("YYYY-MM-DD");
     const istTime = moment().format("HH:mm:ss");
-
     pool.query(
       `UPDATE properties
      SET property_status = ?, 
@@ -496,21 +559,59 @@ module.exports = {
   getLatestProperties: async (req, res) => {
     const { property_for } = req.query;
     try {
-      let query = `SELECT * FROM properties WHERE property_status = 1 AND sub_type != "PLOT"`;
-      let queryParams = [];
-      if (property_for) {
-        query += ` AND property_for = ?`;
-        queryParams.push(property_for);
-      }
-      query += ` ORDER BY id DESC LIMIT 5`;
-      pool.query(query, queryParams, (err, results) => {
+      const latestPropertyQuery = `SELECT updated_date FROM properties WHERE property_status = 1 AND sub_type != "PLOT" ORDER BY id DESC LIMIT 1`;
+      pool.query(latestPropertyQuery, async (err, latestResult) => {
         if (err) {
-          console.error("Error fetching properties:", err);
-          return res.status(500).json({ error: "Database query failed" });
+          return res
+            .status(500)
+            .json({ error: "Database query failed for latest property" });
         }
-        res.status(200).json({
-          count: results.length,
-          properties: results,
+        if (!latestResult || latestResult.length === 0) {
+          return res.status(404).json({ error: "No properties found" });
+        }
+        const latestUpdatedDate = moment(latestResult[0].updated_date);
+        const fiveDaysAgo = latestUpdatedDate
+          .subtract(8, "days")
+          .format("YYYY-MM-DD HH:mm:ss");
+        let query = `SELECT * FROM properties WHERE property_status = 1 AND sub_type = "Apartment" AND sub_type != "PLOT" AND updated_date >= ?`;
+        let queryParams = [fiveDaysAgo];
+        if (property_for) {
+          query += ` AND property_for = ?`;
+          queryParams.push(property_for);
+        }
+        query += ` ORDER BY id DESC`;
+        pool.query(query, queryParams, (err, results) => {
+          if (err) {
+            return res.status(500).json({ error: "Database query failed" });
+          }
+          const shuffleArray = (array) => {
+            for (let i = array.length - 1; i > 0; i--) {
+              const j = Math.floor(Math.random() * (i + 1));
+              [array[i], array[j]] = [array[j], array[i]];
+            }
+            return array;
+          };
+          const getFirstWord = (name) => {
+            return name?.split(" ")[0]?.toLowerCase() || "";
+          };
+          const shuffledProperties = shuffleArray([...results]);
+          const uniqueProperties = [];
+          const seenFirstWords = new Set();
+          for (const property of shuffledProperties) {
+            const firstWord = getFirstWord(property.property_name);
+            if (!seenFirstWords.has(firstWord)) {
+              seenFirstWords.add(firstWord);
+              uniqueProperties.push(property);
+            }
+            if (uniqueProperties.length >= 15) break;
+          }
+          const finalProperties = uniqueProperties
+            .sort(() => Math.random() - 0.5)
+            .slice(0, 8);
+          res.status(200).json({
+            count: finalProperties.length,
+            properties: finalProperties,
+          });
         });
       });
     } catch (error) {
@@ -638,20 +739,16 @@ module.exports = {
         sp.shedule_time, sp.view_status, 
         COALESCE(p.property_for, 'Unknown') AS property_for,
         p.property_name,
-
         -- Owner Details
         u.id AS owner_user_id, u.name AS owner_name, u.mobile AS owner_mobile, u.user_type AS owner_type,
         u.email AS owner_email, u.photo AS owner_photo
-
       FROM searched_properties sp
       LEFT JOIN properties p ON sp.property_id = p.unique_property_id
       LEFT JOIN users u ON p.user_id = u.id
       ${property_for ? "WHERE p.property_for = ?" : ""}
     `;
-
       const values = property_for ? [property_for] : [];
       const [result] = await pool.promise().query(query, values);
-
       if (result.length === 0) {
         return res.status(404).json({
           message: `No results found for: ${property_for || "All"}`,
@@ -659,7 +756,6 @@ module.exports = {
           data: [],
         });
       }
-
       res.status(200).json({
         message: "Data fetched successfully",
         count: result.length,
