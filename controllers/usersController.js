@@ -37,36 +37,29 @@ module.exports = {
   },
   getAllUsersByType: (req, res) => {
     const { user_type, name, search } = req.query;
-
     let sql = "SELECT * FROM users";
     let countSql = "SELECT COUNT(*) AS count FROM users";
     let values = [];
     let countValues = [];
-
     if (user_type) {
       sql += " WHERE user_type = ?";
       countSql += " WHERE user_type = ?";
       values.push(user_type);
       countValues.push(user_type);
     }
-
     pool.query(countSql, countValues, (err, countResult) => {
       if (err) {
         console.error("Error fetching user count:", err);
         return res.status(500).json({ error: "Database query failed" });
       }
-
       const userCount = countResult[0].count;
-
       pool.query(sql, values, async (err, users) => {
         if (err) {
           console.error("Error fetching users:", err);
           return res.status(500).json({ error: "Database query failed" });
         }
-
         try {
           const userIds = users.map((user) => user.id);
-
           if (userIds.length === 0) {
             return res.status(200).json({
               success: true,
@@ -74,7 +67,6 @@ module.exports = {
               data: [],
             });
           }
-
           const placeholders = userIds.map(() => "?").join(",");
           const searchSql = `
           SELECT 
@@ -91,7 +83,6 @@ module.exports = {
             AND sp.property_id != '' 
             AND sp.property_id != '0'
         `;
-
           pool.query(searchSql, userIds, (err, searchedResults) => {
             if (err) {
               console.error("Error fetching searched properties:", err);
@@ -99,7 +90,6 @@ module.exports = {
                 .status(500)
                 .json({ error: "Failed to get searched properties" });
             }
-
             const groupedSearches = {};
             searchedResults.forEach((item) => {
               if (!groupedSearches[item.user_id]) {
@@ -107,12 +97,10 @@ module.exports = {
               }
               groupedSearches[item.user_id].push(item);
             });
-
             const enrichedUsers = users.map((user) => ({
               ...user,
               userActivity: groupedSearches[user.id] || [],
             }));
-
             res.status(200).json({
               success: true,
               count: userCount,
@@ -592,4 +580,112 @@ module.exports = {
       });
     },
   ],
+  insertOrUpdateToken: async (req, res) => {
+    const { user_id, push_token } = req.body;
+    if (!user_id || !push_token) {
+      return res.status(400).json({ error: "user_id and token are required" });
+    }
+    try {
+      pool.query(
+        `SELECT id FROM users WHERE id = ?`,
+        [user_id],
+        (err, results) => {
+          if (err) {
+            console.error("Error checking user:", err);
+            return res.status(500).json({ error: "Database query failed" });
+          }
+          if (results.length === 0) {
+            return res.status(404).json({ error: "User not found" });
+          }
+          pool.query(
+            `SELECT user_id FROM tokens WHERE user_id = ?`,
+            [user_id],
+            (err, tokenResults) => {
+              if (err) {
+                console.error("Error checking token:", err);
+                return res.status(500).json({ error: "Database query failed" });
+              }
+              if (tokenResults.length > 0) {
+                pool.query(
+                  `UPDATE tokens SET push_token = ? WHERE user_id = ?`,
+                  [push_token, user_id],
+                  (err, updateResults) => {
+                    if (err) {
+                      console.error("Error updating token:", err);
+                      return res
+                        .status(500)
+                        .json({ error: "Database query failed" });
+                    }
+                    res
+                      .status(200)
+                      .json({ message: "Token updated successfully" });
+                  }
+                );
+              } else {
+                pool.query(
+                  `INSERT INTO tokens (user_id, push_token, created_at) 
+                   VALUES (?, ?, NOW())`,
+                  [user_id, push_token],
+                  (err, insertResults) => {
+                    if (err) {
+                      console.error("Error inserting token:", err);
+                      return res
+                        .status(500)
+                        .json({ error: "Database query failed" });
+                    }
+                    res
+                      .status(201)
+                      .json({ message: "Token created successfully" });
+                  }
+                );
+              }
+            }
+          );
+        }
+      );
+    } catch (error) {
+      console.error("Unexpected error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  },
+  getTokens: async (req, res) => {
+    const { user_id } = req.query;
+    try {
+      if (user_id) {
+        pool.query(
+          `SELECT user_id, push_token, created_at 
+           FROM tokens 
+           WHERE user_id = ?`,
+          [user_id],
+          (err, results) => {
+            if (err) {
+              console.error("Error fetching tokens:", err);
+              return res.status(500).json({ error: "Database query failed" });
+            }
+            if (results.length === 0) {
+              return res
+                .status(404)
+                .json({ error: "No tokens found for user" });
+            }
+            res.status(200).json(results);
+          }
+        );
+      } else {
+        pool.query(
+          `SELECT user_id, push_token, created_at 
+           FROM tokens`,
+          (err, results) => {
+            if (err) {
+              console.error("Error fetching tokens:", err);
+              return res.status(500).json({ error: "Database query failed" });
+            }
+            res.status(200).json(results);
+          }
+        );
+      }
+    } catch (error) {
+      console.error("Unexpected error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  },
 };

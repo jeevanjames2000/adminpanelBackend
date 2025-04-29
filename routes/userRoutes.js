@@ -26,4 +26,6 @@ router.post("/updateUser", userController.updateUser);
 router.delete("/deleteUser", userController.deleteUser);
 router.get("/getProfile", userController.getProfileData);
 router.post("/uploadUserImage", userController.uploadUserImage);
+router.post("/insertToken", userController.insertOrUpdateToken);
+router.get("/getAllTokens", userController.getTokens);
 module.exports = router;

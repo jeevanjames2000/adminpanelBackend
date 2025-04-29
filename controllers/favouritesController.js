@@ -3,6 +3,7 @@ const moment = require("moment");
 module.exports = {
   getAllFavourites: (req, res) => {
     const { user_id } = req.query;
+    console.log("user_id: ", user_id);
     if (!user_id) return res.status(400).json({ message: "User ID required" });
     const query = `
     SELECT * 
@@ -19,6 +20,12 @@ module.exports = {
   },
   postIntrest: (req, res) => {
     const { User_user_id, unique_property_id, status } = req.body;
+    console.log(
+      " User_user_id, unique_property_id, status: ",
+      User_user_id,
+      unique_property_id,
+      status
+    );
     if (!User_user_id || !unique_property_id) {
       return res
         .status(400)
@@ -108,3 +115,4 @@ module.exports = {
     });
   },
 };
+  

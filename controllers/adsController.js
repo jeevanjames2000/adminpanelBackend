@@ -127,18 +127,14 @@ module.exports = {
         property_in,
         google_address,
       } = req.body;
-
-      console.log("unique_property_id: ", unique_property_id);
       if (!unique_property_id || !property_name) {
         return res.status(400).json({
           message: "unique_property_id and property_name are required",
         });
       }
-
       const created_date = moment().format("YYYY-MM-DD");
       const created_time = moment().format("HH:mm:ss");
-      const status = 1; // Default value for status
-
+      const status = 1;
       const insertQuery = `
       INSERT INTO ads_details (
         unique_property_id, property_name, ads_page, ads_order, 
@@ -150,7 +146,6 @@ module.exports = {
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
-
       const values = [
         unique_property_id || null,
         property_name || null,
@@ -176,10 +171,6 @@ module.exports = {
         property_in || null,
         google_address || null,
       ];
-
-      console.log("Columns count:", insertQuery.match(/\w+/g)?.length - 3); // Adjust for query syntax
-      console.log("Values count:", values.length);
-
       pool.query(insertQuery, values, (err, result) => {
         if (err) {
           console.error("Error inserting ad details:", err);
