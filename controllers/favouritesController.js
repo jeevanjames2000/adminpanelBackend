@@ -3,7 +3,6 @@ const moment = require("moment");
 module.exports = {
   getAllFavourites: (req, res) => {
     const { user_id } = req.query;
-    console.log("user_id: ", user_id);
     if (!user_id) return res.status(400).json({ message: "User ID required" });
     const query = `
     SELECT * 
@@ -20,17 +19,13 @@ module.exports = {
   },
   postIntrest: (req, res) => {
     const { User_user_id, unique_property_id, status } = req.body;
-    console.log(
-      " User_user_id, unique_property_id, status: ",
-      User_user_id,
-      unique_property_id,
-      status
-    );
+
     if (!User_user_id || !unique_property_id) {
       return res
         .status(400)
         .json({ message: "User ID and Property ID required" });
     }
+
     if (status === 1) {
       const deleteQuery = `DELETE FROM favourites WHERE User_user_id = ? AND unique_property_id = ?`;
       pool.query(
@@ -50,10 +45,15 @@ module.exports = {
         }
       );
     } else {
+      // INSERT new favourite
       const searched_on_date = moment().format("YYYY-MM-DD");
       const searched_on_time = moment().format("HH:mm:ss");
-      const { status, updated_date, updated_on, user, ...filteredBody } =
+
+      // Exclude unwanted fields: id, status, updated_date, updated_on, user
+      const { id, status, updated_date, updated_on, user, ...filteredBody } =
         req.body;
+
+      // Format dates
       if (filteredBody.under_construction) {
         filteredBody.under_construction = moment(
           filteredBody.under_construction
@@ -64,17 +64,21 @@ module.exports = {
           filteredBody.available_from
         ).format("YYYY-MM-DD");
       }
+
+      // Prepare final data
       const data = {
         ...filteredBody,
         searched_on_date,
         searched_on_time,
       };
+
       const columns = Object.keys(data);
       const values = Object.values(data);
       const placeholders = columns.map(() => "?").join(", ");
       const insertQuery = `INSERT INTO favourites (${columns.join(
         ", "
       )}) VALUES (${placeholders})`;
+
       pool.query(insertQuery, values, (err, result) => {
         if (err) {
           console.error("Error inserting favourite:", err);
@@ -115,4 +119,3 @@ module.exports = {
     });
   },
 };
-  

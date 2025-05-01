@@ -28,4 +28,6 @@ router.get("/getProfile", userController.getProfileData);
 router.post("/uploadUserImage", userController.uploadUserImage);
 router.post("/insertToken", userController.insertOrUpdateToken);
 router.get("/getAllTokens", userController.getTokens);
+router.post("/notify-user", userController.sendToSingleUser);
+router.post("/notify-all", userController.sendToAllUsers);
 module.exports = router;

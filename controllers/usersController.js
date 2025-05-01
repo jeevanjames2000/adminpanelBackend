@@ -7,6 +7,8 @@ const uploadDir = "./uploads";
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const { Expo } = require("expo-server-sdk");
+const expo = new Expo();
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     if (!fs.existsSync(uploadDir)) {
@@ -19,7 +21,17 @@ const storage = multer.diskStorage({
     cb(null, uniqueName + path.extname(file.originalname));
   },
 });
+
 const upload = multer({ storage });
+const getQueryResults = (query, params) => {
+  return new Promise((resolve, reject) => {
+    pool.query(query, params, (err, results) => {
+      if (err) return reject(err);
+      resolve(results);
+    });
+  });
+};
+
 module.exports = {
   getAllUsersCount: async (req, res) => {
     pool.query(
@@ -223,7 +235,6 @@ module.exports = {
       created_by,
       created_userID,
     } = req.body;
-    console.log("user_type: ", user_type);
     if (!created_userID) {
       return res.status(400).json({ message: "User ID is required" });
     }
@@ -393,7 +404,6 @@ module.exports = {
   },
   updateUser: async (req, res) => {
     const { id, ...fieldsToUpdate } = req.body;
-    console.log("fieldsToUpdate: ", fieldsToUpdate);
     if (!id) {
       return res
         .status(400)
@@ -686,6 +696,74 @@ module.exports = {
     } catch (error) {
       console.error("Unexpected error:", error);
       res.status(500).json({ error: "Internal server error" });
+    }
+  },
+  sendToSingleUser: async (req, res) => {
+    const { user_id, title, message } = req.body;
+    try {
+      const rows = await getQueryResults(
+        "SELECT push_token FROM tokens WHERE user_id = ?",
+        [user_id]
+      );
+
+      if (!rows.length || !Expo.isExpoPushToken(rows[0].push_token)) {
+        return res.status(400).json({ error: "Invalid or missing push token" });
+      }
+
+      const messages = [
+        {
+          to: rows[0].push_token,
+          sound: "default",
+          title: title || "Notification",
+          body: message || "You have a new message",
+          data: { withSome: "data" },
+        },
+      ];
+
+      let chunks = expo.chunkPushNotifications(messages);
+      let tickets = [];
+
+      for (let chunk of chunks) {
+        let ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+        tickets.push(...ticketChunk);
+      }
+
+      return res.json({ success: true, tickets });
+    } catch (error) {
+      console.error("Push error", error);
+      res.status(500).json({ error: "Something went wrong" });
+    }
+  },
+
+  sendToAllUsers: async (req, res) => {
+    const { title, message } = req.body;
+    try {
+      const rows = await getQueryResults(
+        "SELECT push_token FROM tokens WHERE push_token IS NOT NULL"
+      );
+
+      const messages = rows
+        .filter((row) => Expo.isExpoPushToken(row.push_token))
+        .map((row) => ({
+          to: row.push_token,
+          sound: "default",
+          title: title || "Notification",
+          body: message || "You have a new announcement",
+          data: { withSome: "data" },
+        }));
+
+      let chunks = expo.chunkPushNotifications(messages);
+      let tickets = [];
+
+      for (let chunk of chunks) {
+        let ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+        tickets.push(...ticketChunk);
+      }
+
+      return res.json({ success: true, count: tickets.length, tickets });
+    } catch (error) {
+      console.error("Push error", error);
+      res.status(500).json({ error: "Something went wrong" });
     }
   },
 };

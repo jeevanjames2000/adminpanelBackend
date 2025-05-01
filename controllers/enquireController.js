@@ -221,4 +221,45 @@ module.exports = {
       return res.status(200).json({ message: "Enquiry saved successfully" });
     });
   },
+  contactUs: (req, res) => {
+    const { name, mobile, email, message } = req.body;
+
+    if (!name || !mobile || !email || !message) {
+      return res.status(400).json({ error: "All fields are required" });
+    }
+
+    const status = 1;
+    const created_date = moment().format("YYYY-MM-DD");
+    const created_time = moment().format("HH:mm:ss");
+    const updated_date = created_date;
+    const updated_time = created_time;
+
+    const sql = `
+    INSERT INTO customer_messages 
+    (name, mobile, email, message, status, created_date, created_time, updated_date, updated_time)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `;
+
+    const values = [
+      name,
+      mobile,
+      email,
+      message,
+      status,
+      created_date,
+      created_time,
+      updated_date,
+      updated_time,
+    ];
+
+    pool.query(sql, values, (err, result) => {
+      if (err) {
+        console.error("Error inserting contact message:", err);
+        return res.status(500).json({ error: "Database error" });
+      }
+      res
+        .status(200)
+        .json({ success: true, message: "Message submitted successfully" });
+    });
+  },
 };

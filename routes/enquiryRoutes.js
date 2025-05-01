@@ -8,5 +8,5 @@ router.get("/getUserContactSellers", enquiryController.getUserContactSellers);
 router.post("/postEnquiry", enquiryController.postEnquiry);
 router.post("/contactSeller", enquiryController.contactSeller);
 router.post("/scheduleVisit", enquiryController.scheduleVisit);
-
+router.post("/contactUs", enquiryController.contactUs);
 module.exports = router;
