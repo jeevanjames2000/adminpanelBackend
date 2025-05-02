@@ -661,43 +661,36 @@ module.exports = {
   getTokens: async (req, res) => {
     const { user_id } = req.query;
     try {
+      let query = `
+      SELECT t.user_id, t.push_token, t.created_at, u.name 
+      FROM tokens t
+      JOIN users u ON t.user_id = u.id
+    `;
+      let params = [];
+
       if (user_id) {
-        pool.query(
-          `SELECT user_id, push_token, created_at 
-           FROM tokens 
-           WHERE user_id = ?`,
-          [user_id],
-          (err, results) => {
-            if (err) {
-              console.error("Error fetching tokens:", err);
-              return res.status(500).json({ error: "Database query failed" });
-            }
-            if (results.length === 0) {
-              return res
-                .status(404)
-                .json({ error: "No tokens found for user" });
-            }
-            res.status(200).json(results);
-          }
-        );
-      } else {
-        pool.query(
-          `SELECT user_id, push_token, created_at 
-           FROM tokens`,
-          (err, results) => {
-            if (err) {
-              console.error("Error fetching tokens:", err);
-              return res.status(500).json({ error: "Database query failed" });
-            }
-            res.status(200).json(results);
-          }
-        );
+        query += ` WHERE t.user_id = ?`;
+        params.push(user_id);
       }
+
+      pool.query(query, params, (err, results) => {
+        if (err) {
+          console.error("Error fetching tokens:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+
+        if (results.length === 0) {
+          return res.status(404).json({ error: "No tokens found for user" });
+        }
+
+        res.status(200).json(results);
+      });
     } catch (error) {
       console.error("Unexpected error:", error);
       res.status(500).json({ error: "Internal server error" });
     }
   },
+
   sendToSingleUser: async (req, res) => {
     const { user_id, title, message } = req.body;
     try {
