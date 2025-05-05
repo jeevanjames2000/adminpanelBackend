@@ -138,6 +138,7 @@ module.exports = {
         search = "",
         page = 1,
       } = req.query;
+      console.log("priceFilter: ", priceFilter);
       const conditions = [
         "p.property_name IS NOT NULL",
         "p.description IS NOT NULL",

@@ -1,0 +1,2 @@
+[17:44:01] {"message":"Subscription and payment recorded successfully","userId":271,"package":"basic","status":"success","amount":6999}
+[17:45:02] {"message":"Subscription and payment recorded successfully","userId":271,"package":"basic","status":"success","amount":6999,"payment_reference":"pay_M5asdf123","payment_mode":"UPI","payment_gateway":"Razorpay"}
