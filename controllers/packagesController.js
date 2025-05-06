@@ -50,13 +50,89 @@ module.exports = {
     });
   },
   getAllSubscriptions: (req, res) => {
-    const query = `SELECT id, name, mobile, email, subscription_package, subscription_start_date, subscription_expiry_date, subscription_status FROM users WHERE subscription_status='active'`;
-    pool.query(query, (err, results) => {
+    const { payment_status } = req.query;
+
+    if (!payment_status) {
+      return res
+        .status(400)
+        .json({ success: false, message: "payment_status query is required" });
+    }
+
+    const query = `SELECT * FROM payment_details WHERE payment_status = ?`;
+    pool.query(query, [payment_status], (err, results) => {
       if (err) {
         console.error("Error fetching subscriptions:", err);
-        return res.status(500).json({ message: "Internal server error" });
+        return res
+          .status(500)
+          .json({ success: false, message: "Internal server error" });
       }
-      return res.status(200).json({ data: results });
+
+      return res.status(200).json({ success: true, data: results });
+    });
+  },
+  getSubscriptionDetails: (req, res) => {
+    const { user_id } = req.query;
+
+    if (!user_id) {
+      return res.status(400).json({
+        success: false,
+        message: "Missing user_id in query params",
+      });
+    }
+
+    const userQuery = `
+    SELECT id, name, email, mobile, subscription_package, 
+           subscription_start_date, subscription_expiry_date, subscription_status 
+    FROM users 
+    WHERE id = ? LIMIT 1`;
+
+    pool.execute(userQuery, [user_id], (err, userResults) => {
+      if (err) {
+        console.error("DB Error - users:", err);
+        return res.status(500).json({
+          success: false,
+          message: "Failed to fetch user data",
+        });
+      }
+
+      if (!userResults || userResults.length === 0) {
+        return res.status(404).json({
+          success: false,
+          message: "User not found",
+        });
+      }
+
+      const user = userResults[0];
+
+      const paymentQuery = `
+      SELECT payment_amount, payment_reference, payment_mode, payment_gateway,
+             razorpay_order_id, razorpay_payment_id, razorpay_signature,
+             subscription_package, subscription_start_date, subscription_expiry_date,
+             payment_status, created_at
+      FROM payment_details 
+      WHERE user_id = ? 
+      ORDER BY created_at DESC LIMIT 1`;
+
+      pool.execute(paymentQuery, [user_id], (err, paymentResults) => {
+        if (err) {
+          console.error("DB Error - payment_details:", err);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to fetch payment details",
+          });
+        }
+
+        const payment = paymentResults.length > 0 ? paymentResults[0] : null;
+
+        return res.json({
+          success: true,
+          message: "Subscription details fetched",
+          data: {
+            user,
+            payment,
+          },
+        });
+      });
     });
   },
   createSubscription: (req, res) => {

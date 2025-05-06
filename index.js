@@ -42,7 +42,15 @@ const corsOptions = {
   exposedHeaders: ["Content-Disposition"],
 };
 
-app.use(cors(corsOptions));
+app.use(
+  cors({
+    origin: "*",
+    methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
+    allowedHeaders:
+      "Origin, X-Requested-With, Content-Type, Accept, Authorization",
+    credentials: true,
+  })
+);
 
 // Main Routes
 app.use("/auth/v1", authRoutes);
