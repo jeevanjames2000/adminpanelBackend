@@ -317,6 +317,7 @@ module.exports = {
     const user_id = req.body.user_id || req.query.user_id;
     const subscription_status = req.body.subscription_status;
     const payment_status = req.body.payment_status;
+
     if (!user_id || !subscription_status || !payment_status) {
       return res.status(400).json({
         success: false,
@@ -324,6 +325,7 @@ module.exports = {
           "User ID, subscription status, and payment status are required",
       });
     }
+
     try {
       const [subscriptions] = await pool.promise().execute(
         `SELECT id FROM payment_details 
@@ -331,28 +333,62 @@ module.exports = {
        ORDER BY created_at DESC LIMIT 1`,
         [user_id]
       );
+
       if (!subscriptions || subscriptions.length === 0) {
         return res.status(404).json({
           success: false,
           message: "No subscriptions found",
         });
       }
+
       const paymentId = subscriptions[0].id;
+      let invoice_number = null;
+
+      // Generate invoice if payment is successful
+      if (payment_status.toLowerCase() === "success") {
+        const [rows] = await pool.promise().execute(
+          `SELECT invoice_number FROM invoices 
+         ORDER BY id DESC LIMIT 1`
+        );
+
+        let nextNumber = 1;
+        if (rows.length > 0 && rows[0].invoice_number) {
+          const last = rows[0].invoice_number;
+          nextNumber = parseInt(last.split("-")[1]) + 1;
+        }
+
+        invoice_number = `INV-${String(nextNumber).padStart(5, "0")}`;
+
+        // Insert into invoices table
+        await pool.promise().execute(
+          `INSERT INTO invoices (invoice_number, user_id, payment_status, subscription_status) 
+         VALUES (?, ?, ?, ?)`,
+          [invoice_number, user_id, payment_status, subscription_status]
+        );
+      }
+
+      // Update payment_details with invoice_number if generated
       await pool.promise().execute(
         `UPDATE payment_details 
-       SET payment_status = ?, subscription_status = ? 
+       SET payment_status = ?, subscription_status = ?, invoice_number = ? 
        WHERE id = ?`,
-        [payment_status, subscription_status, paymentId]
+        [payment_status, subscription_status, invoice_number, paymentId]
       );
+
+      // Update user subscription status
       await pool.promise().execute(
         `UPDATE users 
        SET subscription_status = ? 
        WHERE id = ?`,
         [subscription_status, user_id]
       );
+
       return res.status(200).json({
         success: true,
-        message: `Subscription status updated to "${subscription_status}" and payment status to "${payment_status}"`,
+        message: `Subscription and payment updated.${
+          invoice_number ? ` Invoice ${invoice_number} generated.` : ""
+        }`,
+        ...(invoice_number && { invoice_number }),
       });
     } catch (err) {
       console.error("Error updating subscription:", err);
