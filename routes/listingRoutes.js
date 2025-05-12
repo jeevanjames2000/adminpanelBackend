@@ -16,6 +16,7 @@ router.get(
 router.get("/getAroundThisProperty", listingController.getAroundThisProperty);
 router.get("/getRandomPropertiesAds", listingController.getRandomPropertiesAds);
 router.get("/getPropertiesByUserID", listingController.getPropertiesByUserID);
+router.get("/getPropertyActivity", listingController.getPropertyActivity);
 router.get("/getLatestProperties", listingController.getLatestProperties);
 router.get("/getBestDeals", listingController.getBestDeals);
 router.get("/getBestMeetowner", listingController.getBestMeetOwner);
@@ -26,7 +27,9 @@ router.get(
   listingController.getMostPropertiesSeller
 );
 router.get("/getHighDemandProjects", listingController.getHighDemandProjects);
+router.get("/getAllPropertyViews", listingController.getAllPropertyViews);
 router.post("/updateListing", listingController.updateListing);
+router.post("/propertyViewed", listingController.propertyViewed);
 router.post("/updateStatus", listingController.updateStatus);
 router.delete("/deleteListing", listingController.deleteListing);
 module.exports = router;

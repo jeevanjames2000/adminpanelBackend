@@ -856,7 +856,99 @@ module.exports = {
       res.status(500).json({ message: "Internal Server Error" });
     }
   },
-  uploadAdsImages: (req, res) => {
-    const { photo, property_id, order } = req.body;
+  getPropertyActivity: (req, res) => {
+    const { property_id } = req.query;
+    if (!property_id) {
+      return res.status(400).json({ error: "property_id is required" });
+    }
+    const query = `
+    SELECT cs.*, u.id as user_id, u.name as user_name, u.email as user_email, u.mobile as user_mobile
+    FROM contact_seller cs
+    LEFT JOIN users u ON cs.user_id = u.id
+    WHERE cs.unique_property_id = ?
+    ORDER BY cs.id DESC
+  `;
+    pool.query(query, [property_id], (err, results) => {
+      if (err) {
+        console.error("Error fetching contact sellers with user details:", err);
+        return res.status(500).json({ error: "Database error" });
+      }
+      if (results.length === 0) {
+        return res
+          .status(404)
+          .json({ message: "No contact sellers found for this property" });
+      }
+      const formattedResults = results.map((row) => {
+        const { user_id, user_name, user_email, user_mobile, ...contact } = row;
+        return {
+          ...contact,
+          userDetails: {
+            id: user_id,
+            name: user_name,
+            email: user_email,
+            mobile: user_mobile,
+          },
+        };
+      });
+      return res.status(200).json({ results: formattedResults });
+    });
+  },
+  propertyViewed: (req, res) => {
+    const { user_id, property_id, name, mobile, email, property_name } =
+      req.body;
+    if (
+      !user_id ||
+      !property_id ||
+      !name ||
+      !mobile ||
+      !email ||
+      !property_name
+    ) {
+      return res.status(400).json({ error: "All fields are required" });
+    }
+    const created_date = moment().format("YYYY-MM-DD HH:mm:ss");
+    const query = `
+    INSERT INTO property_views (user_id, property_id, name, mobile, email, created_date, property_name)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `;
+    const values = [
+      user_id,
+      property_id,
+      name,
+      mobile,
+      email,
+      created_date,
+      property_name,
+    ];
+    pool.query(query, values, (err, result) => {
+      if (err) {
+        console.error("Error inserting into property_views:", err);
+        return res.status(500).json({ error: "Database error" });
+      }
+      return res.status(201).json({
+        message: "Property view recorded successfully",
+        insertedId: result.insertId,
+      });
+    });
+  },
+  getAllPropertyViews: (req, res) => {
+    const { property_id } = req.query;
+    let query = `SELECT * FROM property_views`;
+    const params = [];
+    if (property_id) {
+      query += ` WHERE property_id = ?`;
+      params.push(property_id);
+    }
+    query += ` ORDER BY id DESC`;
+    pool.query(query, params, (err, results) => {
+      if (err) {
+        console.error("Error fetching property views:", err);
+        return res.status(500).json({ error: "Database error" });
+      }
+      return res.status(200).json({
+        count: results.length,
+        views: results,
+      });
+    });
   },
 };

@@ -6,4 +6,8 @@ router.post("/createOrder", paymentController.createOrder);
 router.post("/verifyPayment", paymentController.verifyPayment);
 router.post("/checkSubscription", paymentController.checkSubscription);
 router.post("/updateSubscription", paymentController.updateSubscription);
+router.post("/razorpayWebhook", paymentController.razorpayWebhook);
+router.post("/createPaymentLink", paymentController.createPaymentLink);
+router.post("/verifyPaymentLink", paymentController.verifyPaymentLink);
+
 module.exports = router;
