@@ -15,5 +15,7 @@ router.post("/editPlace", mainController.editPlace);
 router.post("/insertPlaces", mainController.insertPlace);
 router.get("/getAllStates", mainController.getAllStates);
 router.get("/getAllCities", mainController.getAllCities);
+router.post("/insertCareer", mainController.insertCareer);
+router.delete("/deleteCareer", mainController.deleteCareer);
 
 module.exports = router;

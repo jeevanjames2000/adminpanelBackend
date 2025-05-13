@@ -1,11 +1,15 @@
 const pool = require("../config/db");
-const cache = new Map();
-const CACHE_LIMIT = 5;
+const moment = require("moment");
+
 module.exports = {
   getAllUsers: async (req, res) => {
-    pool.query("SELECT * FROM users", (err, results) => {
+    const userTypes = [2, 3, 4, 5, 6];
+    const placeholders = userTypes.map(() => "?").join(", ");
+    const query = `SELECT * FROM users WHERE user_type IN (${placeholders}) ORDER BY id DESC`;
+
+    pool.query(query, userTypes, (err, results) => {
       if (err) {
-        console.error("❌ Error fetching users:", err);
+        console.error("Error fetching users:", err);
         return res.status(500).json({ error: "Database query failed" });
       }
       res.status(200).json(results);
@@ -76,6 +80,79 @@ module.exports = {
       res.status(200).json(results);
     });
   },
+  insertCareer: async (req, res) => {
+    const { description, job_title, preferred_location, salary, experience } =
+      req.body;
+
+    const upload_date = moment().format("YYYY-MM-DD");
+
+    try {
+      const insertQuery = `
+        INSERT INTO company_careers 
+        (description, job_title, upload_date, preferred_location, salary, experience) 
+        VALUES (?, ?, ?, ?, ?, ?)
+      `;
+
+      // Use callback style if you're using `mysql` (not `mysql2`)
+      pool.query(
+        insertQuery,
+        [
+          description,
+          job_title || null,
+          upload_date,
+          preferred_location || null,
+          salary || null,
+          experience || null,
+        ],
+        (err, result) => {
+          if (err) {
+            console.error("Insert Error:", err);
+            return res.status(500).json({
+              status: "error",
+              message: "Failed to insert career entry",
+            });
+          }
+
+          return res.status(201).json({
+            status: "success",
+            message: "Career entry inserted successfully",
+          });
+        }
+      );
+    } catch (error) {
+      console.error("Insert Error:", error);
+      res.status(500).json({
+        status: "error",
+        message: "Failed to insert career entry",
+      });
+    }
+  },
+
+  deleteCareer: async (req, res) => {
+    const { id } = req.query;
+
+    if (!id || isNaN(parseInt(id))) {
+      return res.status(400).json({ error: "Valid career ID is required" });
+    }
+
+    pool.query(
+      "DELETE FROM company_careers WHERE id = ?",
+      [id],
+      (err, result) => {
+        if (err) {
+          console.error("Delete Error:", err);
+          return res.status(500).json({ error: "Database delete failed" });
+        }
+
+        if (result.affectedRows === 0) {
+          return res.status(404).json({ error: "Career not found" });
+        }
+
+        return res.status(200).json({ message: "Career deleted successfully" });
+      }
+    );
+  },
+
   getAllPlaces: (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const search = req.query.search || "";

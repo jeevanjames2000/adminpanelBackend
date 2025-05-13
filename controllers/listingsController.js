@@ -138,7 +138,6 @@ module.exports = {
         search = "",
         page = 1,
       } = req.query;
-      console.log("priceFilter: ", priceFilter);
       const conditions = [
         "p.property_name IS NOT NULL",
         "p.description IS NOT NULL",
@@ -560,28 +559,9 @@ module.exports = {
   getLatestProperties: async (req, res) => {
     const { property_for } = req.query;
     try {
-      const latestPropertyQuery = `SELECT updated_date FROM properties WHERE property_status = 1 AND sub_type != "PLOT" ORDER BY id DESC LIMIT 1`;
-      pool.query(latestPropertyQuery, async (err, latestResult) => {
-        if (err) {
-          return res
-            .status(500)
-            .json({ error: "Database query failed for latest property" });
-        }
-        if (!latestResult || latestResult.length === 0) {
-          return res.status(404).json({ error: "No properties found" });
-        }
-        const latestUpdatedDate = moment(latestResult[0].updated_date);
-        const fiveDaysAgo = latestUpdatedDate
-          .subtract(8, "days")
-          .format("YYYY-MM-DD HH:mm:ss");
-        let query = `SELECT * FROM properties WHERE property_status = 1 AND sub_type = "Apartment" AND sub_type != "PLOT" AND updated_date >= ?`;
-        let queryParams = [fiveDaysAgo];
-        if (property_for) {
-          query += ` AND property_for = ?`;
-          queryParams.push(property_for);
-        }
-        query += ` ORDER BY id DESC`;
-        pool.query(query, queryParams, (err, results) => {
+      if (property_for === "Rent") {
+        let query = `SELECT * FROM properties WHERE property_status = 1  AND sub_type != "PLOT" AND property_for = ? ORDER BY id DESC`;
+        pool.query(query, [property_for], (err, results) => {
           if (err) {
             return res.status(500).json({ error: "Database query failed" });
           }
@@ -609,12 +589,68 @@ module.exports = {
           const finalProperties = uniqueProperties
             .sort(() => Math.random() - 0.5)
             .slice(0, 8);
-          res.status(200).json({
+          return res.status(200).json({
             count: finalProperties.length,
             properties: finalProperties,
           });
         });
-      });
+      } else {
+        const latestPropertyQuery = `SELECT updated_date FROM properties WHERE property_status = 1 AND sub_type != "PLOT" ORDER BY id DESC LIMIT 1`;
+        pool.query(latestPropertyQuery, async (err, latestResult) => {
+          if (err) {
+            return res
+              .status(500)
+              .json({ error: "Database query failed for latest property" });
+          }
+          if (!latestResult || latestResult.length === 0) {
+            return res.status(404).json({ error: "No properties found" });
+          }
+          const latestUpdatedDate = moment(latestResult[0].updated_date);
+          const fiveDaysAgo = latestUpdatedDate
+            .subtract(8, "days")
+            .format("YYYY-MM-DD HH:mm:ss");
+          let query = `SELECT * FROM properties WHERE property_status = 1 AND sub_type = "Apartment" AND sub_type != "PLOT" AND updated_date >= ?`;
+          let queryParams = [fiveDaysAgo];
+          if (property_for) {
+            query += ` AND property_for = ?`;
+            queryParams.push(property_for);
+          }
+          query += ` ORDER BY id DESC`;
+          pool.query(query, queryParams, (err, results) => {
+            if (err) {
+              return res.status(500).json({ error: "Database query failed" });
+            }
+            const shuffleArray = (array) => {
+              for (let i = array.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [array[i], array[j]] = [array[j], array[i]];
+              }
+              return array;
+            };
+            const getFirstWord = (name) => {
+              return name?.split(" ")[0]?.toLowerCase() || "";
+            };
+            const shuffledProperties = shuffleArray([...results]);
+            const uniqueProperties = [];
+            const seenFirstWords = new Set();
+            for (const property of shuffledProperties) {
+              const firstWord = getFirstWord(property.property_name);
+              if (!seenFirstWords.has(firstWord)) {
+                seenFirstWords.add(firstWord);
+                uniqueProperties.push(property);
+              }
+              if (uniqueProperties.length >= 15) break;
+            }
+            const finalProperties = uniqueProperties
+              .sort(() => Math.random() - 0.5)
+              .slice(0, 8);
+            res.status(200).json({
+              count: finalProperties.length,
+              properties: finalProperties,
+            });
+          });
+        });
+      }
     } catch (error) {
       console.error("Error fetching latest properties:", error);
       res.status(500).json({ message: "Internal Server Error" });
@@ -862,15 +898,25 @@ module.exports = {
       return res.status(400).json({ error: "property_id is required" });
     }
     const query = `
-    SELECT cs.*, u.id as user_id, u.name as user_name, u.email as user_email, u.mobile as user_mobile
-    FROM contact_seller cs
-    LEFT JOIN users u ON cs.user_id = u.id
-    WHERE cs.unique_property_id = ?
-    ORDER BY cs.id DESC
-  `;
+      SELECT 
+        cs.*, 
+        u.id AS user_id, 
+        u.name AS user_name, 
+        u.email AS user_email, 
+        u.mobile AS user_mobile,
+        p.property_name AS property_name
+      FROM contact_seller cs
+      LEFT JOIN users u ON cs.user_id = u.id
+      LEFT JOIN properties p ON cs.unique_property_id = p.unique_property_id
+      WHERE cs.unique_property_id = ?
+      ORDER BY cs.id DESC
+    `;
     pool.query(query, [property_id], (err, results) => {
       if (err) {
-        console.error("Error fetching contact sellers with user details:", err);
+        console.error(
+          "Error fetching contact sellers with user and property details:",
+          err
+        );
         return res.status(500).json({ error: "Database error" });
       }
       if (results.length === 0) {
@@ -879,9 +925,17 @@ module.exports = {
           .json({ message: "No contact sellers found for this property" });
       }
       const formattedResults = results.map((row) => {
-        const { user_id, user_name, user_email, user_mobile, ...contact } = row;
+        const {
+          user_id,
+          user_name,
+          user_email,
+          user_mobile,
+          property_name,
+          ...contact
+        } = row;
         return {
           ...contact,
+          property_name,
           userDetails: {
             id: user_id,
             name: user_name,
