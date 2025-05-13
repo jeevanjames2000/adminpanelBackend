@@ -681,7 +681,12 @@ module.exports = {
   },
   getRandomPropertiesAds: (req, res) => {
     try {
-      const query = `SELECT * FROM properties WHERE property_status = 1 ORDER BY id DESC LIMIT 15`;
+      const query = `SELECT * FROM properties 
+WHERE property_status = 1 
+  AND sub_type IN ('Apartment', 'PLOT') 
+ORDER BY id DESC 
+LIMIT 15;
+`;
       pool.query(query, [], (err, results) => {
         if (err) {
           console.error("Error fetching properties:", err);
