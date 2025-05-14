@@ -7,5 +7,5 @@ router.get("/getAllSubscriptions", packageController.getAllSubscriptions);
 router.get("/getSubscriptionDetails", packageController.getSubscriptionDetails);
 router.post("/createSubscription", packageController.createSubscription);
 router.post("/updateSubscription", packageController.updateSubscription);
-
+router.get("/expiringSoon", packageController.expiringSoon);
 module.exports = router;

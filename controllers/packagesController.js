@@ -3,18 +3,21 @@ const moment = require("moment");
 const logger = require("../logger");
 module.exports = {
   getAllPackages: (req, res) => {
-    const { package_for } = req.query;
+    const { package_for, city } = req.query;
+    if (!city) {
+      return res.status(400).json({ message: "city query is required" });
+    }
     let query = `
       SELECT 
         p.id AS package_id,
         p.name,
         p.duration_days,
-        p.price,
+        COALESCE(pcp.price, p.price) AS price,
         p.is_popular,
         p.button_text,
-        p.actual_amount,
-        p.gst,
-        p.sgst,
+        COALESCE(pcp.price, p.price) / (1 + p.gst_percentage / 100) AS actual_amount,
+        (COALESCE(pcp.price, p.price) / (1 + p.gst_percentage / 100)) * (p.gst_percentage / 100) AS gst,
+        (COALESCE(pcp.price, p.price) / (1 + p.gst_percentage / 100)) * (p.gst_percentage / 200) AS sgst,
         p.gst_percentage,
         p.gst_number,
         p.rera_number,
@@ -22,9 +25,10 @@ module.exports = {
         pr.rule_name,
         pr.included
       FROM packageNames p
+      LEFT JOIN package_city_pricing pcp ON p.id = pcp.package_id AND pcp.city = ?
       LEFT JOIN package_rules pr ON p.id = pr.package_id
     `;
-    const params = [];
+    const params = [city];
     if (package_for) {
       query += ` WHERE p.package_for = ?`;
       params.push(package_for);
@@ -45,13 +49,13 @@ module.exports = {
             id: String(id),
             name: row.name,
             duration_days: row.duration_days,
-            price: row.price,
+            price: parseFloat(row.price).toFixed(2),
             is_popular: row.is_popular === "1",
             button_text: row.button_text,
-            actual_amount: row.actual_amount,
-            gst: row.gst,
-            sgst: row.sgst,
-            gst_percentage: row.gst_percentage,
+            actual_amount: parseFloat(row.actual_amount).toFixed(2),
+            gst: parseFloat(row.gst).toFixed(2),
+            sgst: parseFloat(row.sgst).toFixed(2),
+            gst_percentage: parseFloat(row.gst_percentage).toFixed(2),
             gst_number: row.gst_number,
             rera_number: row.rera_number,
             package_for: row.package_for,
@@ -72,19 +76,35 @@ module.exports = {
   getAllSubscriptions: (req, res) => {
     const { payment_status } = req.query;
     if (!payment_status) {
-      return res
-        .status(400)
-        .json({ success: false, message: "payment_status query is required" });
+      return res.status(400).json({
+        success: false,
+        message: "payment_status query is required",
+      });
     }
-    const query = `SELECT * FROM payment_details WHERE payment_status = ?`;
-    pool.query(query, [payment_status], (err, results) => {
+    let query;
+    let params = [];
+    if (payment_status === "expirysoon") {
+      query = `
+        SELECT * FROM payment_details 
+        WHERE subscription_status = 'active' 
+        AND subscription_expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 3 DAY)
+      `;
+    } else {
+      query = `SELECT * FROM payment_details WHERE payment_status = ?`;
+      params = [payment_status];
+    }
+    pool.query(query, params, (err, results) => {
       if (err) {
         console.error("Error fetching subscriptions:", err);
-        return res
-          .status(500)
-          .json({ success: false, message: "Internal server error" });
+        return res.status(500).json({
+          success: false,
+          message: "Internal server error",
+        });
       }
-      return res.status(200).json({ success: true, data: results });
+      return res.status(200).json({
+        success: true,
+        data: results,
+      });
     });
   },
   getSubscriptionDetails: (req, res) => {
@@ -119,7 +139,7 @@ module.exports = {
       SELECT payment_amount, payment_reference, payment_mode, payment_gateway,
              razorpay_order_id, razorpay_payment_id, razorpay_signature,
              subscription_package, subscription_start_date, subscription_expiry_date,
-             payment_status, created_at
+             payment_status, created_at,city
       FROM payment_details 
       WHERE user_id = ? 
       ORDER BY created_at DESC LIMIT 1`;
@@ -146,6 +166,7 @@ module.exports = {
   createSubscription: (req, res) => {
     const {
       userId,
+      user_type,
       package,
       payment_status,
       payment_amount,
@@ -197,7 +218,7 @@ module.exports = {
     WHERE id = ?`;
       const insertPaymentQuery = `
       INSERT INTO payment_details 
-      (user_id, name, mobile, email, subscription_package, subscription_start_date, subscription_expiry_date, subscription_status, payment_status, payment_amount, payment_reference, payment_mode, payment_gateway, transaction_time) 
+      (user_id,user_type, name, mobile, email, subscription_package, subscription_start_date, subscription_expiry_date, subscription_status, payment_status, payment_amount, payment_reference, payment_mode, payment_gateway, transaction_time) 
       VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?, ?, ?, ?)`;
       pool.query(
         updateUserQuery,
@@ -216,6 +237,7 @@ module.exports = {
             insertPaymentQuery,
             [
               userId,
+              user_type,
               user_name,
               user_mobile,
               user_email,
@@ -245,6 +267,7 @@ module.exports = {
               logger.logSuccess({
                 message: "Subscription and payment recorded successfully",
                 userId,
+                user_type,
                 package,
                 status: payment_status,
                 amount: payment_amount,
@@ -293,6 +316,27 @@ module.exports = {
       return res
         .status(200)
         .json({ message: "Subscription updated successfully" });
+    });
+  },
+  expiringSoon: (req, res) => {
+    const query = `
+      SELECT * FROM payment_details 
+      WHERE subscription_status = 'active' 
+        AND subscription_expiry_date BETWEEN NOW() AND DATE_ADD(NOW(), INTERVAL 3 DAY)
+    `;
+    pool.query(query, (err, results) => {
+      if (err) {
+        console.error("Error fetching expiring subscriptions:", err);
+        return res.status(500).json({
+          success: false,
+          message: "Internal server error",
+        });
+      }
+      return res.status(200).json({
+        success: true,
+        count: results.length,
+        data: results,
+      });
     });
   },
 };

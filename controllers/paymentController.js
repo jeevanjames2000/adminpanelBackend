@@ -63,6 +63,8 @@ module.exports = {
   verifyPayment: (req, res) => {
     const {
       user_id,
+      user_type,
+      city,
       name,
       mobile,
       email,
@@ -194,15 +196,17 @@ module.exports = {
             }
             pool.execute(
               `INSERT INTO payment_details (
-                user_id, name, mobile, email,
+                user_id,user_type,city, name, mobile, email,
                 subscription_package, subscription_start_date, subscription_expiry_date,
                 subscription_status, payment_status, payment_amount,
                 payment_reference, payment_mode, payment_gateway,
                 razorpay_order_id, razorpay_payment_id, razorpay_signature,
                 actual_amount, gst, sgst, gst_percentage, gst_number, rera_number
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+              ) VALUES (?,?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
               [
                 user_id,
+                user_type,
+                city,
                 name,
                 mobile,
                 email,
@@ -476,16 +480,36 @@ module.exports = {
       name,
       mobile,
       email,
+      city,
       subscription_package,
     } = req.body;
-    if (!user_id || !email || !mobile || !amount || !subscription_package) {
+    if (
+      !user_id ||
+      !email ||
+      !mobile ||
+      !amount ||
+      !subscription_package ||
+      !city
+    ) {
       return res.status(400).json({
         success: false,
         message:
           "user_id, customer_email, customer_contact, amount, and subscription_package are required",
       });
     }
-    const validPackages = ["Free Listing", "Basic", "Prime", "Prime Plus"];
+    const validPackages = [
+      "Free Listing",
+      "Basic",
+      "Prime",
+      "Prime Plus",
+      "Custom",
+    ];
+    if (subscription_package === "Custom" && amount <= 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Custom package must have a valid amount",
+      });
+    }
     if (!validPackages.includes(subscription_package)) {
       return res.status(400).json({
         success: false,
@@ -544,6 +568,7 @@ module.exports = {
             name: name,
             mobile: mobile,
             email: email,
+            city: city,
             subscription_package,
             payment_amount: amount,
           },
@@ -570,9 +595,11 @@ module.exports = {
   verifyPaymentLink: async (req, res) => {
     const {
       user_id,
+      user_type,
       name,
       mobile,
       email,
+      city,
       subscription_package,
       payment_amount,
       payment_reference,
@@ -599,7 +626,9 @@ module.exports = {
       Basic: "basic",
       Prime: "prime",
       "Prime Plus": "prime_plus",
+      Custom: "custom",
     };
+
     const mappedPackageName = packageEnumMap[subscription_package];
     if (!mappedPackageName) {
       return res.status(400).json({
@@ -607,6 +636,7 @@ module.exports = {
         message: "Invalid subscription package format",
       });
     }
+
     const validStatuses = ["processing", "captured", "failed", "cancelled"];
     if (!validStatuses.includes(payment_status)) {
       return res.status(400).json({
@@ -683,15 +713,17 @@ module.exports = {
         );
         await connection.execute(
           `INSERT INTO payment_details (
-            user_id, name, mobile, email,
+            user_id,user_type,city, name, mobile, email,
             subscription_package, subscription_start_date, subscription_expiry_date,
             subscription_status, payment_status, payment_amount,
             payment_reference, payment_mode, payment_gateway,
             razorpay_order_id, razorpay_payment_id, razorpay_signature,
             actual_amount, gst, sgst, gst_percentage, gst_number, rera_number
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             user_id,
+            user_type,
+            city,
             name || null,
             mobile || null,
             email || null,
