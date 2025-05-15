@@ -4,7 +4,7 @@ const fs = require("fs");
 const pool = require("../config/db");
 const { v4: uuidv4 } = require("uuid");
 const moment = require("moment");
-const adAssetsDir = "./uploads";
+const adAssetsDir = "./uploads/adAssets";
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
     if (!fs.existsSync(adAssetsDir)) {
@@ -19,67 +19,242 @@ const storage = multer.diskStorage({
 });
 const upload = multer({ storage });
 module.exports = {
-  uploadAdsImages: [
+  uploadSliderImages: [
     upload.single("photo"),
     (req, res) => {
-      const { property_id, order, user_id } = req.body;
-      const videoUrl = `uploads/${req.file.filename}`;
-      const query = `
-        INSERT INTO ad_videos (id,video_url, ad_order, property_id, user_id, created_date)
-        VALUES (?,?, ?, ?, ?, NOW())
+      const {
+        unique_property_id,
+        property_name,
+        ads_page,
+        ads_order,
+        start_date,
+        end_date,
+        city,
+        display_cities,
+        ads_title,
+        ads_button_text,
+        ads_button_link,
+        ads_description,
+        user_id,
+        property_type,
+        sub_type,
+        property_for,
+        property_cost,
+        property_in,
+        google_address,
+      } = req.body;
+      const created_date = moment().format("YYYY-MM-DD");
+      const created_time = moment().format("HH:mm:ss");
+      const status = 1;
+      const videoUrl = req.file
+        ? `uploads/adAssets/${req.file.filename}`
+        : null;
+      const insertQuery = `
+        INSERT INTO ads_details (
+          unique_property_id, property_name, ads_page, ads_order, 
+          start_date, end_date, created_date, created_time, 
+          status, city, image, display_cities, ads_title, 
+          ads_button_text, ads_button_link, ads_description, 
+          user_id, property_type, sub_type, property_for, 
+          property_cost, property_in, google_address
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `;
-      const id = uuidv4();
-      pool.query(
-        query,
-        [id, videoUrl, order, property_id, user_id],
-        (err, result) => {
-          if (err) {
-            console.error("Error inserting video data:", err);
-            return res
-              .status(500)
-              .json({ message: "Error saving video data to database" });
-          }
-          res.status(200).json({
-            message: "Video uploaded and saved to database successfully",
-            videoUrl,
-            ad_video_id: result.insertId,
-          });
+      const values = [
+        unique_property_id || null,
+        property_name || null,
+        ads_page || null,
+        ads_order || null,
+        start_date || null,
+        end_date || null,
+        created_date,
+        created_time,
+        status,
+        city || null,
+        videoUrl,
+        display_cities || null,
+        ads_title || null,
+        ads_button_text || null,
+        ads_button_link || null,
+        ads_description || null,
+        user_id || null,
+        property_type || null,
+        sub_type || null,
+        property_for || null,
+        property_cost || null,
+        property_in || null,
+        google_address || null,
+      ];
+      pool.query(insertQuery, values, (err, result) => {
+        if (err) {
+          console.error("Error inserting ad details:", err);
+          return res.status(500).json({ error: "Database error" });
         }
-      );
+        return res
+          .status(200)
+          .json({ message: "Ad inserted successfully", id: result.insertId });
+      });
     },
   ],
-  getAdsImages: (req, res) => {
-    const dirPath = path.join(__dirname, "../uploads");
+  getSliderImages: (req, res) => {
+    const dirPath = path.join(__dirname, "../uploads/adAssets");
     fs.readdir(dirPath, (err, files) => {
       if (err) {
         return res.status(500).json({ message: "Failed to read images" });
       }
-      const images = files.map((file) => `/uploads/${file}`);
+      const images = files.map((file) => `/uploads/adAssets/${file}`);
       res.status(200).json({ images });
     });
   },
   deleteAdImage: (req, res) => {
-    const { filename } = req.params;
-    const filePath = path.join(__dirname, "../uploads", filename);
-    fs.unlink(filePath, (err) => {
-      if (err) {
-        console.error("Failed to delete image:", err);
-        return res.status(500).json({ message: "Failed to delete image" });
+    const ads_page = (req.query.ads_page || "").trim().toLowerCase();
+    const property_name = (req.query.property_name || "").trim();
+    const unique_property_id = (req.query.unique_property_id || "").trim();
+    if (!ads_page) {
+      return res
+        .status(400)
+        .json({ message: "ads_page query param is required" });
+    }
+    if (ads_page === "main_slider") {
+      if (!property_name) {
+        return res
+          .status(400)
+          .json({ message: "property_name is required for main_slider" });
       }
-      res.status(200).json({ message: "Image deleted successfully" });
-    });
+      const selectQuery = `SELECT image FROM ads_details WHERE ads_page = ? AND property_name = ? LIMIT 1`;
+      pool.query(
+        selectQuery,
+        [ads_page, property_name],
+        (selectErr, results) => {
+          if (selectErr) {
+            console.error("Error finding ad:", selectErr);
+            return res
+              .status(500)
+              .json({ message: "Database error while finding ad" });
+          }
+          if (results.length === 0) {
+            return res
+              .status(404)
+              .json({ message: "Ad not found in database" });
+          }
+          const imagePathFromDB = results[0].image;
+          const filename = imagePathFromDB.split("/").pop();
+          const filePath = path.join(
+            __dirname,
+            "../uploads/adAssets",
+            filename
+          );
+          fs.unlink(filePath, (unlinkErr) => {
+            if (unlinkErr && unlinkErr.code !== "ENOENT") {
+              console.error("File deletion error:", unlinkErr);
+              return res
+                .status(500)
+                .json({ message: "Failed to delete image file" });
+            }
+            const deleteQuery = `DELETE FROM ads_details WHERE ads_page = ? AND property_name = ?`;
+            pool.query(deleteQuery, [ads_page, property_name], (deleteErr) => {
+              if (deleteErr) {
+                console.error("DB delete error:", deleteErr);
+                return res
+                  .status(500)
+                  .json({ message: "Failed to delete ad from database" });
+              }
+              return res.status(200).json({
+                message: "Main slider ad and image deleted successfully",
+              });
+            });
+          });
+        }
+      );
+    } else {
+      if (!unique_property_id || !property_name) {
+        return res.status(400).json({
+          message:
+            "unique_property_id and property_name are required for non-main_slider ads",
+        });
+      }
+      const deleteQuery = `
+        DELETE FROM ads_details 
+        WHERE unique_property_id = ? AND property_name = ? AND ads_page = ?
+      `;
+      pool.query(
+        deleteQuery,
+        [unique_property_id, property_name, ads_page],
+        (err, result) => {
+          if (err) {
+            console.error("DB delete error:", err);
+            return res
+              .status(500)
+              .json({ message: "Failed to delete ad from database" });
+          }
+          if (result.affectedRows === 0) {
+            return res
+              .status(404)
+              .json({ message: "Ad not found with given identifiers" });
+          }
+          return res
+            .status(200)
+            .json({ message: "Ad deleted from database (no image involved)" });
+        }
+      );
+    }
   },
   getAds: (req, res) => {
-    const query = "SELECT * FROM ad_videos";
-    pool.query(query, (err, results) => {
+    const ads_page = (req.query.ads_page || "").trim().toLowerCase();
+    let query = "";
+    let queryParams = [];
+    if (ads_page === "all_ads") {
+      query = "SELECT * FROM ads_details";
+    } else if (ads_page) {
+      query = "SELECT * FROM ads_details WHERE ads_page = ?";
+      queryParams = [ads_page];
+    } else {
+      return res
+        .status(400)
+        .json({ message: "ads_page query param is required" });
+    }
+    pool.query(query, queryParams, async (err, adsResults) => {
       if (err) {
         console.error("Error fetching ads:", err);
         return res.status(500).json({ message: "Error fetching ads" });
       }
-      res.status(200).json({
-        message: "Ads fetched successfully",
-        ads: results,
-      });
+      try {
+        const enrichedAds = await Promise.all(
+          adsResults.map((ad) => {
+            return new Promise((resolve, reject) => {
+              const propertyQuery = `
+                SELECT * FROM properties 
+                WHERE unique_property_id = ?
+              `;
+              pool.query(
+                propertyQuery,
+                [ad.unique_property_id],
+                (propErr, propResults) => {
+                  if (propErr) {
+                    console.error(
+                      `Error fetching property for ad_id ${ad.id}:`,
+                      propErr
+                    );
+                    return reject(propErr);
+                  }
+                  ad.property_data = propResults[0] || null;
+                  resolve(ad);
+                }
+              );
+            });
+          })
+        );
+        const shuffledAds = enrichedAds.sort(() => 0.5 - Math.random());
+        res.status(200).json({
+          message: "Ads with selected property data fetched successfully",
+          ads: shuffledAds,
+        });
+      } catch (error) {
+        console.error("Error fetching property data:", error);
+        return res
+          .status(500)
+          .json({ message: "Error fetching related property data" });
+      }
     });
   },
   getAllAds: (req, res) => {
