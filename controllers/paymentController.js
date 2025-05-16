@@ -2,6 +2,91 @@ const razorpayInstance = require("./Razorpay");
 const crypto = require("crypto");
 const pool = require("../config/db");
 const moment = require("moment");
+const { default: axios } = require("axios");
+const sendWhatsappLeads = async (name, mobile) => {
+  const payload = {
+    channelId: "67a9e14542596631a8cfc87b",
+    channelType: "whatsapp",
+    recipient: {
+      name: name,
+      phone: `91${mobile}`,
+    },
+    whatsapp: {
+      type: "template",
+      template: {
+        templateName: "listing_alret",
+        bodyValues: {
+          name,
+          phone: mobile,
+        },
+      },
+    },
+  };
+  const headers = {
+    apiKey: "67e3a37bfa6fbc8b1aa2edcf",
+    apiSecret: "a9fe1160c20f491eb00389683b29ec6b",
+    "Content-Type": "application/json",
+  };
+  try {
+    const response = await axios.post(
+      "https://server.gallabox.com/devapi/messages/whatsapp",
+      payload,
+      { headers }
+    );
+    return response.status === 202;
+  } catch (error) {
+    console.error("Failed to send WhatsApp message:", error);
+    return false;
+  }
+};
+const sendInvoice = async (name, mobile, amount, invoiceUrl) => {
+  const payload = {
+    channelId: "67a9e14542596631a8cfc87b",
+    channelType: "whatsapp",
+    recipient: {
+      name: name,
+      phone: `91${mobile}`,
+    },
+    whatsapp: {
+      type: "template",
+      template: {
+        templateName: "invoice_sending_to_client",
+        headerValues: {
+          mediaUrl: invoiceUrl,
+          mediaName: "invoice.pdf",
+        },
+        bodyValues: {
+          name: name,
+          variable_2: amount,
+        },
+        buttonValues: [],
+      },
+    },
+  };
+
+  const headers = {
+    apiKey: "67e3a37bfa6fbc8b1aa2edcf",
+    apiSecret: "a9fe1160c20f491eb00389683b29ec6b",
+    "Content-Type": "application/json",
+  };
+
+  try {
+    const response = await axios.post(
+      "https://server.gallabox.com/devapi/messages/whatsapp",
+      payload,
+      { headers }
+    );
+    console.log("Invoice WhatsApp response:", response.data);
+    return response.status === 202;
+  } catch (error) {
+    console.error(
+      "Failed to send WhatsApp invoice message:",
+      error.response?.data || error.message
+    );
+    return false;
+  }
+};
+
 module.exports = {
   createOrder: (req, res) => {
     const { amount, currency, user_id } = req.body;
@@ -415,9 +500,9 @@ module.exports = {
     }
     try {
       const [subscriptions] = await pool.promise().execute(
-        `SELECT id FROM payment_details 
-       WHERE user_id = ? 
-       ORDER BY created_at DESC LIMIT 1`,
+        `SELECT id, name, mobile,payment_amount FROM payment_details 
+         WHERE user_id = ? 
+         ORDER BY created_at DESC LIMIT 1`,
         [user_id]
       );
       if (!subscriptions || subscriptions.length === 0) {
@@ -426,13 +511,14 @@ module.exports = {
           message: "No subscriptions found",
         });
       }
-      const paymentId = subscriptions[0].id;
+      const { id: paymentId, name, mobile, payment_amount } = subscriptions[0];
       let invoice_number = null;
       if (payment_status.toLowerCase() === "success") {
-        const [rows] = await pool.promise().execute(
-          `SELECT invoice_number FROM invoices 
-         ORDER BY id DESC LIMIT 1`
-        );
+        const [rows] = await pool
+          .promise()
+          .execute(
+            `SELECT invoice_number FROM invoices ORDER BY id DESC LIMIT 1`
+          );
         let nextNumber = 1;
         if (rows.length > 0 && rows[0].invoice_number) {
           const last = rows[0].invoice_number;
@@ -441,22 +527,31 @@ module.exports = {
         invoice_number = `INV-${String(nextNumber).padStart(5, "0")}`;
         await pool.promise().execute(
           `INSERT INTO invoices (invoice_number, user_id, payment_status, subscription_status) 
-         VALUES (?, ?, ?, ?)`,
+           VALUES (?, ?, ?, ?)`,
           [invoice_number, user_id, payment_status, subscription_status]
         );
       }
       await pool.promise().execute(
         `UPDATE payment_details 
-       SET payment_status = ?, subscription_status = ?, invoice_number = ? 
-       WHERE id = ?`,
+         SET payment_status = ?, subscription_status = ?, invoice_number = ? 
+         WHERE id = ?`,
         [payment_status, subscription_status, invoice_number, paymentId]
       );
-      await pool.promise().execute(
-        `UPDATE users 
-       SET subscription_status = ? 
-       WHERE id = ?`,
-        [subscription_status, user_id]
-      );
+      await pool
+        .promise()
+        .execute(`UPDATE users SET subscription_status = ? WHERE id = ?`, [
+          subscription_status,
+          user_id,
+        ]);
+      if (name && mobile) {
+        await sendWhatsappLeads(name, mobile);
+        await sendInvoice(
+          name,
+          mobile,
+          payment_amount,
+          "https://files.gallabox.com/677f66df176346e7ae5fa5b8/2d3b09fd-cc6c-4b02-8b30-5a7f711283a6-invoiceINV00005.pdf"
+        );
+      }
       return res.status(200).json({
         success: true,
         message: `Subscription and payment updated.${
@@ -628,7 +723,6 @@ module.exports = {
       "Prime Plus": "prime_plus",
       Custom: "custom",
     };
-
     const mappedPackageName = packageEnumMap[subscription_package];
     if (!mappedPackageName) {
       return res.status(400).json({
@@ -636,7 +730,6 @@ module.exports = {
         message: "Invalid subscription package format",
       });
     }
-
     const validStatuses = ["processing", "captured", "failed", "cancelled"];
     if (!validStatuses.includes(payment_status)) {
       return res.status(400).json({
@@ -773,24 +866,20 @@ module.exports = {
   },
   getInvoiceByID: (req, res) => {
     const { user_id } = req.query;
-
     if (!user_id) {
       return res.status(400).json({ error: "user_id is required" });
     }
-
     const query = `
       SELECT * 
       FROM payment_details 
       WHERE user_id = ? AND payment_status = 'success'
       ORDER BY created_at DESC
     `;
-
     pool.query(query, [user_id], (err, results) => {
       if (err) {
         console.error("Error fetching invoice data:", err);
         return res.status(500).json({ error: "Database error" });
       }
-
       res.status(200).json(results);
     });
   },
