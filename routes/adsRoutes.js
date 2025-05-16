@@ -9,4 +9,6 @@ router.post("/deleteAdImage", adsController.deleteAdImage);
 router.get("/getAllAds", adsController.getAllAds);
 router.post("/postAdDetails", adsController.postAdDetails);
 router.get("/getAdDetails", adsController.getAdDetails);
+router.post("/uploadDynamicAssets", adsController.uploadDynamicAssets);
+router.get("/getDynamicAssets", adsController.getDynamicAssets);
 module.exports = router;

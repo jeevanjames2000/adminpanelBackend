@@ -9,5 +9,5 @@ router.post("/updateSubscription", paymentController.updateSubscription);
 router.post("/razorpayWebhook", paymentController.razorpayWebhook);
 router.post("/createPaymentLink", paymentController.createPaymentLink);
 router.post("/verifyPaymentLink", paymentController.verifyPaymentLink);
-
+router.get("/getInvoiceByID", paymentController.getInvoiceByID);
 module.exports = router;

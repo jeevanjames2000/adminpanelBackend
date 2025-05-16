@@ -30,4 +30,10 @@ router.post("/insertToken", userController.insertOrUpdateToken);
 router.get("/getAllTokens", userController.getTokens);
 router.post("/notify-user", userController.sendToSingleUser);
 router.post("/notify-all", userController.sendToAllUsers);
+router.get(
+  "/getAllNotificationHistory",
+  userController.getAllNotificationHistory
+);
+router.post("/createShorts", userController.createShorts);
+router.get("/getAllShorts", userController.getAllShorts);
 module.exports = router;

@@ -18,6 +18,25 @@ const storage = multer.diskStorage({
   },
 });
 const upload = multer({ storage });
+// Folder for dynamic assets
+const dynamicAssetsDir = "./uploads/dynamicAssets";
+
+// Configure storage for dynamic assets
+const dynamicStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    if (!fs.existsSync(dynamicAssetsDir)) {
+      fs.mkdirSync(dynamicAssetsDir, { recursive: true });
+    }
+    cb(null, dynamicAssetsDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  },
+});
+
+const dynamicUpload = multer({ storage: dynamicStorage });
+
 module.exports = {
   uploadSliderImages: [
     upload.single("photo"),
@@ -388,5 +407,83 @@ module.exports = {
       console.error("Error in getAdDetails API:", error);
       res.status(500).json({ message: "Internal server error" });
     }
+  },
+  uploadDynamicAssets: [
+    dynamicUpload.single("asset"),
+    (req, res) => {
+      const {
+        asset_type, // e.g., splash, header, icon
+        screen_name, // optional - which screen it belongs to
+        description,
+        uploaded_by,
+      } = req.body;
+
+      const created_date = moment().format("YYYY-MM-DD");
+      const created_time = moment().format("HH:mm:ss");
+
+      const assetPath = req.file
+        ? `uploads/dynamicAssets/${req.file.filename}`
+        : null;
+
+      const insertQuery = `
+        INSERT INTO dynamic_assets (
+          asset_type, screen_name, description, file_path,
+          created_date, created_time, uploaded_by
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+      `;
+
+      const values = [
+        asset_type || null,
+        screen_name || null,
+        description || null,
+        assetPath,
+        created_date,
+        created_time,
+        uploaded_by || null,
+      ];
+
+      pool.query(insertQuery, values, (err, result) => {
+        if (err) {
+          console.error("Error inserting dynamic asset:", err);
+          return res.status(500).json({ error: "Database error" });
+        }
+        return res.status(200).json({
+          message: "Dynamic asset uploaded successfully",
+          id: result.insertId,
+          path: assetPath,
+        });
+      });
+    },
+  ],
+  getDynamicAssets: (req, res) => {
+    const { screen_name, asset_type } = req.query;
+
+    let query = `SELECT * FROM dynamic_assets WHERE 1`;
+    const values = [];
+
+    if (screen_name) {
+      query += ` AND screen_name = ?`;
+      values.push(screen_name);
+    }
+
+    if (asset_type) {
+      query += ` AND asset_type = ?`;
+      values.push(asset_type);
+    }
+
+    query += ` ORDER BY created_date DESC, created_time DESC`;
+
+    pool.query(query, values, (err, results) => {
+      if (err) {
+        console.error("Error fetching dynamic assets:", err);
+        return res.status(500).json({ error: "Database error" });
+      }
+
+      return res.status(200).json({
+        message: "Dynamic assets fetched successfully",
+        assets: results,
+      });
+    });
   },
 };

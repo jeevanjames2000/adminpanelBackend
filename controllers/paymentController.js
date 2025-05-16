@@ -771,4 +771,27 @@ module.exports = {
       });
     }
   },
+  getInvoiceByID: (req, res) => {
+    const { user_id } = req.query;
+
+    if (!user_id) {
+      return res.status(400).json({ error: "user_id is required" });
+    }
+
+    const query = `
+      SELECT * 
+      FROM payment_details 
+      WHERE user_id = ? AND payment_status = 'success'
+      ORDER BY created_at DESC
+    `;
+
+    pool.query(query, [user_id], (err, results) => {
+      if (err) {
+        console.error("Error fetching invoice data:", err);
+        return res.status(500).json({ error: "Database error" });
+      }
+
+      res.status(200).json(results);
+    });
+  },
 };

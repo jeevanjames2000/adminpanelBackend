@@ -21,7 +21,6 @@ const storage = multer.diskStorage({
     cb(null, uniqueName + path.extname(file.originalname));
   },
 });
-
 const upload = multer({ storage });
 const getQueryResults = (query, params) => {
   return new Promise((resolve, reject) => {
@@ -31,7 +30,6 @@ const getQueryResults = (query, params) => {
     });
   });
 };
-
 module.exports = {
   getAllUsersCount: async (req, res) => {
     pool.query(
@@ -667,22 +665,18 @@ module.exports = {
       JOIN users u ON t.user_id = u.id
     `;
       let params = [];
-
       if (user_id) {
         query += ` WHERE t.user_id = ?`;
         params.push(user_id);
       }
-
       pool.query(query, params, (err, results) => {
         if (err) {
           console.error("Error fetching tokens:", err);
           return res.status(500).json({ error: "Database query failed" });
         }
-
         if (results.length === 0) {
           return res.status(404).json({ error: "No tokens found for user" });
         }
-
         res.status(200).json(results);
       });
     } catch (error) {
@@ -690,73 +684,169 @@ module.exports = {
       res.status(500).json({ error: "Internal server error" });
     }
   },
-
-  sendToSingleUser: async (req, res) => {
+  sendToSingleUser: (req, res) => {
     const { user_id, title, message } = req.body;
-    try {
-      const rows = await getQueryResults(
-        "SELECT push_token FROM tokens WHERE user_id = ?",
-        [user_id]
-      );
-
-      if (!rows.length || !Expo.isExpoPushToken(rows[0].push_token)) {
-        return res.status(400).json({ error: "Invalid or missing push token" });
+    pool.query(
+      "SELECT push_token FROM tokens WHERE user_id = ?",
+      [user_id],
+      async (err, rows) => {
+        if (err) {
+          console.error("DB error:", err);
+          return res.status(500).json({ error: "Database error" });
+        }
+        if (!rows.length || !Expo.isExpoPushToken(rows[0].push_token)) {
+          return res
+            .status(400)
+            .json({ error: "Invalid or missing push token" });
+        }
+        const messages = [
+          {
+            to: rows[0].push_token,
+            sound: "default",
+            title: title || "Notification",
+            body: message || "You have a new message",
+            data: { withSome: "data" },
+          },
+        ];
+        try {
+          let chunks = expo.chunkPushNotifications(messages);
+          let tickets = [];
+          for (let chunk of chunks) {
+            let ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+            tickets.push(...ticketChunk);
+          }
+          pool.query(
+            "INSERT INTO notification_history (user_id, title, message) VALUES (?, ?, ?)",
+            [user_id, title || null, message || null],
+            (err) => {
+              if (err) {
+                console.error("History insert error:", err);
+                return res
+                  .status(500)
+                  .json({ error: "Failed to save notification history" });
+              }
+              return res.json({ success: true, tickets });
+            }
+          );
+        } catch (error) {
+          console.error("Push error", error);
+          return res
+            .status(500)
+            .json({ error: "Something went wrong while sending notification" });
+        }
       }
-
-      const messages = [
-        {
-          to: rows[0].push_token,
-          sound: "default",
-          title: title || "Notification",
-          body: message || "You have a new message",
-          data: { withSome: "data" },
-        },
-      ];
-
-      let chunks = expo.chunkPushNotifications(messages);
-      let tickets = [];
-
-      for (let chunk of chunks) {
-        let ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-        tickets.push(...ticketChunk);
-      }
-
-      return res.json({ success: true, tickets });
-    } catch (error) {
-      console.error("Push error", error);
-      res.status(500).json({ error: "Something went wrong" });
-    }
+    );
   },
-
-  sendToAllUsers: async (req, res) => {
+  sendToAllUsers: (req, res) => {
     const { title, message } = req.body;
-    try {
-      const rows = await getQueryResults(
-        "SELECT push_token FROM tokens WHERE push_token IS NOT NULL"
-      );
-
-      const messages = rows
-        .filter((row) => Expo.isExpoPushToken(row.push_token))
-        .map((row) => ({
+    pool.query(
+      "SELECT user_id, push_token FROM tokens WHERE push_token IS NOT NULL",
+      async (err, rows) => {
+        if (err) {
+          console.error("DB error:", err);
+          return res.status(500).json({ error: "Database error" });
+        }
+        const validUsers = rows.filter((row) =>
+          Expo.isExpoPushToken(row.push_token)
+        );
+        const messages = validUsers.map((row) => ({
           to: row.push_token,
           sound: "default",
           title: title || "Notification",
           body: message || "You have a new announcement",
           data: { withSome: "data" },
         }));
-
-      let chunks = expo.chunkPushNotifications(messages);
-      let tickets = [];
-
-      for (let chunk of chunks) {
-        let ticketChunk = await expo.sendPushNotificationsAsync(chunk);
-        tickets.push(...ticketChunk);
+        try {
+          let chunks = expo.chunkPushNotifications(messages);
+          let tickets = [];
+          for (let chunk of chunks) {
+            let ticketChunk = await expo.sendPushNotificationsAsync(chunk);
+            tickets.push(...ticketChunk);
+          }
+          const insertTasks = validUsers.map((user) => {
+            return new Promise((resolve, reject) => {
+              pool.query(
+                "INSERT INTO notification_history (user_id, title, message) VALUES (?, ?, ?)",
+                [user.user_id, title || null, message || null],
+                (err) => (err ? reject(err) : resolve())
+              );
+            });
+          });
+          await Promise.all(insertTasks);
+          return res.json({ success: true, count: tickets.length, tickets });
+        } catch (error) {
+          console.error("Push error", error);
+          return res.status(500).json({ error: "Something went wrong" });
+        }
       }
+    );
+  },
+  getAllNotificationHistory: (req, res) => {
+    pool.query(
+      "SELECT * FROM notification_history ORDER BY created_at DESC",
+      (err, results) => {
+        if (err) {
+          console.error("Error fetching notification history:", err);
+          return res.status(500).json({ error: "Database error" });
+        }
+        res.status(200).json({ notifications: results });
+      }
+    );
+  },
+  createShorts: (req, res) => {
+    const { unique_property_id, property_name, short_type, shorts_order } =
+      req.body;
 
-      return res.json({ success: true, count: tickets.length, tickets });
-    } catch (error) {
-      console.error("Push error", error);
-      res.status(500).json({ error: "Something went wrong" });
+    if (
+      !unique_property_id ||
+      !property_name ||
+      !short_type ||
+      shorts_order === undefined
+    ) {
+      return res.status(400).json({ error: "All fields are required" });
     }
+
+    const query = `
+      INSERT INTO shorts (unique_property_id, property_name, short_type, shorts_order, created_at)
+      VALUES (?, ?, ?, ?, NOW())
+    `;
+
+    const values = [
+      unique_property_id,
+      property_name,
+      short_type,
+      shorts_order,
+    ];
+
+    pool.query(query, values, (err, result) => {
+      if (err) {
+        console.error("Error inserting short:", err);
+        return res.status(500).json({ error: "Database error" });
+      }
+      res.status(201).json({
+        message: "Short created successfully",
+        id: result.insertId,
+      });
+    });
+  },
+  getAllShorts: (req, res) => {
+    const query = `
+      SELECT 
+        shorts.*, 
+        properties.property_name AS property_name_from_properties,
+        properties.* 
+      FROM shorts
+      JOIN properties 
+        ON shorts.unique_property_id COLLATE utf8mb4_unicode_ci = properties.unique_property_id COLLATE utf8mb4_unicode_ci
+      ORDER BY RAND()
+    `;
+
+    pool.query(query, (err, results) => {
+      if (err) {
+        console.error("Error fetching shorts with properties:", err);
+        return res.status(500).json({ error: "Database error" });
+      }
+      res.status(200).json(results);
+    });
   },
 };
