@@ -3,6 +3,9 @@ const crypto = require("crypto");
 const pool = require("../config/db");
 const moment = require("moment");
 const { default: axios } = require("axios");
+const PDFDocument = require("pdfkit");
+const fs = require("fs");
+const path = require("path");
 const sendWhatsappLeads = async (name, mobile) => {
   const payload = {
     channelId: "67a9e14542596631a8cfc87b",
@@ -33,7 +36,9 @@ const sendWhatsappLeads = async (name, mobile) => {
       payload,
       { headers }
     );
-    return response.status === 202;
+    if (response.status === 202) {
+      return response.status === 202;
+    }
   } catch (error) {
     console.error("Failed to send WhatsApp message:", error);
     return false;
@@ -63,20 +68,17 @@ const sendInvoice = async (name, mobile, amount, invoiceUrl) => {
       },
     },
   };
-
   const headers = {
     apiKey: "67e3a37bfa6fbc8b1aa2edcf",
     apiSecret: "a9fe1160c20f491eb00389683b29ec6b",
     "Content-Type": "application/json",
   };
-
   try {
     const response = await axios.post(
       "https://server.gallabox.com/devapi/messages/whatsapp",
       payload,
       { headers }
     );
-    console.log("Invoice WhatsApp response:", response.data);
     return response.status === 202;
   } catch (error) {
     console.error(
@@ -86,7 +88,386 @@ const sendInvoice = async (name, mobile, amount, invoiceUrl) => {
     return false;
   }
 };
-
+const numberToWords = (num) => {
+  num = Math.floor(num);
+  const ones = [
+    "",
+    "One",
+    "Two",
+    "Three",
+    "Four",
+    "Five",
+    "Six",
+    "Seven",
+    "Eight",
+    "Nine",
+  ];
+  const tens = [
+    "",
+    "",
+    "Twenty",
+    "Thirty",
+    "Forty",
+    "Fifty",
+    "Sixty",
+    "Seventy",
+    "Eighty",
+    "Ninety",
+  ];
+  const teens = [
+    "Ten",
+    "Eleven",
+    "Twelve",
+    "Thirteen",
+    "Fourteen",
+    "Fifteen",
+    "Sixteen",
+    "Seventeen",
+    "Eighteen",
+    "Nineteen",
+  ];
+  if (num === 0) return "Zero";
+  const convertLessThanThousand = (n) => {
+    if (n === 0) return "";
+    if (n < 10) return ones[n];
+    if (n < 20) return teens[n - 10];
+    if (n < 100) {
+      return (
+        tens[Math.floor(n / 10)] + (n % 10 !== 0 ? " " + ones[n % 10] : "")
+      );
+    }
+    return (
+      ones[Math.floor(n / 100)] +
+      " Hundred" +
+      (n % 100 !== 0 ? " " + convertLessThanThousand(n % 100) : "")
+    );
+  };
+  const convert = (n) => {
+    if (n === 0) return "";
+    if (n >= 10000000) {
+      return (
+        convertLessThanThousand(Math.floor(n / 10000000)) +
+        " Crore" +
+        (n % 10000000 !== 0 ? " " + convert(n % 10000000) : "")
+      );
+    }
+    if (n >= 100000) {
+      return (
+        convertLessThanThousand(Math.floor(n / 100000)) +
+        " Lakh" +
+        (n % 100000 !== 0 ? " " + convert(n % 100000) : "")
+      );
+    }
+    if (n >= 1000) {
+      return (
+        convertLessThanThousand(Math.floor(n / 1000)) +
+        " Thousand" +
+        (n % 1000 !== 0 ? " " + convertLessThanThousand(n % 1000) : "")
+      );
+    }
+    return convertLessThanThousand(n);
+  };
+  return convert(num).trim() + " Rupees Only";
+};
+const generateInvoicePDF = (subscription) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const invoiceData = {
+        number: subscription.invoice_number || `INV-${subscription.id}`,
+        date: subscription.created_at.split("T")[0],
+        company: {
+          name: "MEET OWNER",
+          address:
+            "401, 8-3-6-5/1/1/4, Astral Hasini Residency, J.P. Nagar, Yella Reddy Guda",
+          city: "Hyderabad",
+          state: "Telangana",
+          zip: "500073",
+          gstin: "36ABVFM6524D1ZZ",
+          email: "support@meetowner.in",
+          phone: "+91 9701888071",
+        },
+        client: {
+          name: subscription.name,
+          mobile: subscription.mobile,
+          gstin: subscription.gst_number || "N/A",
+          rerain: subscription.rera_number || "N/A",
+        },
+        items: [
+          {
+            description: subscription.subscription_package,
+            status: subscription.payment_status,
+            gst: subscription.gst_percentage,
+            mode: subscription.payment_mode,
+            amount: subscription.payment_amount,
+          },
+        ],
+        gstDetails: {
+          actualAmount: subscription.actual_amount,
+          gstAmount: subscription.gst,
+          sgstAmount: subscription.sgst,
+          TotalAmount: subscription.payment_amount,
+        },
+        bankDetails: {
+          paymentDate: subscription.transaction_time.split("T")[0],
+          paymentPlatform: subscription.payment_gateway,
+          startDate: subscription.subscription_start_date.split("T")[0],
+          endDate: subscription.subscription_expiry_date.split("T")[0],
+        },
+        terms: [
+          "Payment is due within 14 days",
+          "Late payment may incur additional charges",
+          "All prices are in Indian Rupees (INR)",
+          "This is a computer-generated invoice, no signature required",
+        ],
+      };
+      const invoicesDir = path.join(__dirname, "../uploads/invoices");
+      if (!fs.existsSync(invoicesDir)) {
+        fs.mkdirSync(invoicesDir, { recursive: true });
+      }
+      const doc = new PDFDocument({
+        size: "A4",
+        margins: { top: 30, bottom: 30, left: 30, right: 30 },
+      });
+      const outputPath = path.join(
+        invoicesDir,
+        `invoice-${invoiceData.number}.pdf`
+      );
+      const stream = fs.createWriteStream(outputPath);
+      doc.pipe(stream);
+      const drawLine = (y, thickness = 1) => {
+        doc
+          .lineWidth(thickness)
+          .moveTo(30, y)
+          .lineTo(565, y)
+          .strokeColor("#e5e7eb")
+          .stroke();
+      };
+      const formatCurrency = (amount) => {
+        const num = parseFloat(amount);
+        if (isNaN(num)) return "\u20B9 0.00";
+        return `\u20B9 ${num.toLocaleString("en-IN", {
+          minimumFractionDigits: 2,
+          maximumFractionDigits: 2,
+        })}`;
+      };
+      const colors = {
+        primary: "#1D3A76",
+        secondary: "#4b5563",
+        heading: "#1f2937",
+        background: "#f3f4f6",
+      };
+      const fonts = {
+        regular: "NotoSans-Regular",
+        bold: "NotoSans-Bold",
+      };
+      doc.registerFont(
+        "NotoSans-Regular",
+        path.join(__dirname, "../assets/fonts/static/NotoSans-Regular.ttf")
+      );
+      doc.registerFont(
+        "NotoSans-Bold",
+        path.join(__dirname, "../assets/fonts/static/NotoSans-Bold.ttf")
+      );
+      const sizes = {
+        title: 24,
+        sectionTitle: 14,
+        subtitle: 10,
+        tableText: 10,
+        total: 12,
+        footer: 10,
+      };
+      doc
+        .font(fonts.bold)
+        .fontSize(sizes.title)
+        .fillColor(colors.primary)
+        .text("TAX INVOICE", 30, 30);
+      const logoPath = path.join(__dirname, "../assets/logo.png");
+      if (fs.existsSync(logoPath)) {
+        doc.image(logoPath, 30, 60, { width: 90, height: 40 });
+      } else {
+        console.warn("Logo image not found at:", logoPath);
+      }
+      doc
+        .font(fonts.regular)
+        .fontSize(sizes.subtitle)
+        .fillColor(colors.secondary);
+      doc.text(invoiceData.company.name, 30, 110);
+      doc.text(invoiceData.company.address, 30, 124);
+      doc.text(
+        `${invoiceData.company.city}, ${invoiceData.company.state} ${invoiceData.company.zip}`,
+        30,
+        138
+      );
+      doc.text(`GSTIN: ${invoiceData.company.gstin}`, 30, 152);
+      doc.text(`Email: ${invoiceData.company.email}`, 30, 166);
+      doc.text(`Phone: ${invoiceData.company.phone}`, 30, 180);
+      const invoiceInfoX = 400;
+      doc
+        .font(fonts.regular)
+        .fontSize(sizes.subtitle)
+        .fillColor(colors.primary);
+      doc.text(`Invoice: ${invoiceData.number}`, invoiceInfoX, 50, {
+        align: "right",
+      });
+      doc.text(`Date: ${invoiceData.date}`, invoiceInfoX, 64, {
+        align: "right",
+      });
+      drawLine(200);
+      doc
+        .font(fonts.bold)
+        .fontSize(sizes.sectionTitle)
+        .fillColor(colors.heading)
+        .text("Bill To:", 30, 220);
+      doc
+        .font(fonts.regular)
+        .fontSize(sizes.subtitle)
+        .fillColor(colors.secondary);
+      doc.text(invoiceData.client.name, 30, 238);
+      doc.text(`Mobile: ${invoiceData.client.mobile}`, 30, 252);
+      doc.text(`GSTIN: ${invoiceData.client.gstin}`, 30, 266);
+      doc.text(`RERA Number: ${invoiceData.client.rerain}`, 30, 280);
+      const tableTop = 310;
+      const colWidths = [100, 100, 100, 100, 100];
+      const tableX = [30, 130, 230, 330, 430];
+      doc.rect(30, tableTop, 535, 20).fill(colors.background);
+      doc.font(fonts.bold).fontSize(sizes.tableText).fillColor(colors.heading);
+      doc.text("Subscription", tableX[0], tableTop + 6);
+      doc.text("Status", tableX[1], tableTop + 6);
+      doc.text("GST", tableX[2], tableTop + 6);
+      doc.text("Mode", tableX[3], tableTop + 6);
+      doc.text("Amount", tableX[4], tableTop + 6);
+      drawLine(tableTop + 20);
+      const rowTop = tableTop + 20;
+      doc
+        .font(fonts.regular)
+        .fontSize(sizes.tableText)
+        .fillColor(colors.secondary);
+      invoiceData.items.forEach((item, index) => {
+        const y = rowTop + index * 20;
+        doc.text(item.description, tableX[0], y + 6);
+        doc.text(item.status, tableX[1], y + 6);
+        doc.text(`${item.gst}%`, tableX[2], y + 6);
+        doc.text(item.mode, tableX[3], y + 6);
+        doc.text(formatCurrency(item.amount), tableX[4], y + 6);
+        drawLine(y + 20);
+      });
+      const totalTop = rowTop + invoiceData.items.length * 20 + 20;
+      const labelX = 400;
+      const amountX = 465;
+      doc
+        .font(fonts.regular)
+        .fontSize(sizes.subtitle)
+        .fillColor(colors.secondary);
+      doc.text("Actual Amount:", labelX, totalTop);
+      doc.text(
+        formatCurrency(invoiceData.gstDetails.actualAmount),
+        amountX,
+        totalTop,
+        { align: "right" }
+      );
+      doc.text("GST Amount:", labelX, totalTop + 14);
+      doc.text(
+        formatCurrency(invoiceData.gstDetails.gstAmount),
+        amountX,
+        totalTop + 14,
+        { align: "right" }
+      );
+      doc.text("SGST Amount:", labelX, totalTop + 28);
+      doc.text(
+        formatCurrency(invoiceData.gstDetails.sgstAmount),
+        amountX,
+        totalTop + 28,
+        { align: "right" }
+      );
+      doc.font(fonts.bold).fontSize(sizes.total).fillColor(colors.heading);
+      drawLine(totalTop + 42);
+      doc.text("Total:", labelX, totalTop + 50);
+      doc.text(
+        formatCurrency(invoiceData.gstDetails.TotalAmount),
+        amountX,
+        totalTop + 50,
+        { align: "right" }
+      );
+      doc
+        .font(fonts.regular)
+        .fontSize(sizes.subtitle)
+        .fillColor(colors.secondary);
+      doc.text(
+        `Amount in words: ${numberToWords(invoiceData.gstDetails.TotalAmount)}`,
+        30,
+        totalTop + 70
+      );
+      const paymentTop = totalTop + 100;
+      drawLine(paymentTop);
+      doc
+        .font(fonts.bold)
+        .fontSize(sizes.sectionTitle)
+        .fillColor(colors.heading)
+        .text("Payment Details:", 30, paymentTop + 10);
+      doc
+        .font(fonts.regular)
+        .fontSize(sizes.subtitle)
+        .fillColor(colors.secondary);
+      doc.text(
+        `Payment Date: ${invoiceData.bankDetails.paymentDate}`,
+        30,
+        paymentTop + 28
+      );
+      doc.text(
+        `Platform: ${invoiceData.bankDetails.paymentPlatform}`,
+        30,
+        paymentTop + 42
+      );
+      doc.text(
+        `Subscription Start Date: ${invoiceData.bankDetails.startDate}`,
+        30,
+        paymentTop + 56
+      );
+      doc.text(
+        `Subscription End Date: ${invoiceData.bankDetails.endDate}`,
+        30,
+        paymentTop + 70
+      );
+      const termsTop = paymentTop + 100;
+      drawLine(termsTop);
+      doc
+        .font(fonts.bold)
+        .fontSize(sizes.sectionTitle)
+        .fillColor(colors.heading)
+        .text("Terms and Conditions:", 30, termsTop + 10);
+      doc
+        .font(fonts.regular)
+        .fontSize(sizes.subtitle)
+        .fillColor(colors.secondary);
+      invoiceData.terms.forEach((term, index) => {
+        doc.text(`• ${term}`, 30, termsTop + 28 + index * 14);
+      });
+      const footerTop = 750;
+      doc
+        .font(fonts.regular)
+        .fontSize(sizes.footer)
+        .fillColor(colors.secondary)
+        .text("Thank you for your business!", 30, footerTop, {
+          align: "center",
+        });
+      doc.text(
+        `For any queries, please contact us at ${invoiceData.company.email}`,
+        30,
+        footerTop + 14,
+        { align: "center" }
+      );
+      doc.end();
+      stream.on("finish", () => {
+        resolve(outputPath);
+      });
+      stream.on("error", (err) => {
+        reject(new Error(`Error generating PDF: ${err.message}`));
+      });
+    } catch (error) {
+      reject(new Error(`Error in generateInvoicePDF: ${error.message}`));
+    }
+  });
+};
 module.exports = {
   createOrder: (req, res) => {
     const { amount, currency, user_id } = req.body;
@@ -145,7 +526,7 @@ module.exports = {
       }
     );
   },
-  verifyPayment: (req, res) => {
+  verifyPayment: async (req, res) => {
     const {
       user_id,
       user_type,
@@ -193,148 +574,214 @@ module.exports = {
       finalPaymentStatus === "processing" ? razorpay_payment_id : null;
     const finalRazorpaySignature =
       finalPaymentStatus === "processing" ? razorpay_signature : null;
-    if (finalPaymentStatus === "cancelled") {
-      finalPaymentStatus = "cancelled";
-      subscription_status = "inactive";
-    } else if (finalPaymentStatus === "failed") {
-      finalPaymentStatus = "failed";
-      subscription_status = "inactive";
-    } else if (finalPaymentStatus === "processing") {
-      const secret = process.env.RAZORPAY_SECRET;
-      if (razorpay_order_id && razorpay_payment_id && razorpay_signature) {
-        const generated_signature = crypto
-          .createHmac("sha256", secret)
-          .update(razorpay_order_id + "|" + razorpay_payment_id)
-          .digest("hex");
-        if (generated_signature !== razorpay_signature) {
-          finalPaymentStatus = "failed";
-          subscription_status = "inactive";
-        } else {
-          finalPaymentStatus = "processing";
-          subscription_status = "processing";
-        }
-      } else {
+    try {
+      if (finalPaymentStatus === "cancelled") {
+        finalPaymentStatus = "cancelled";
+        subscription_status = "inactive";
+      } else if (finalPaymentStatus === "failed") {
         finalPaymentStatus = "failed";
         subscription_status = "inactive";
-      }
-    } else {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid payment_status value",
-      });
-    }
-    pool.execute(
-      `SELECT duration_days, actual_amount, gst, sgst, gst_percentage, gst_number, rera_number 
-       FROM packageNames 
-       WHERE name = ? LIMIT 1`,
-      [subscription_package],
-      (err, packageResults) => {
-        if (err) {
-          console.error("DB Query Error:", err);
+      } else if (finalPaymentStatus === "processing") {
+        const secret = process.env.RAZORPAY_SECRET;
+        if (!secret) {
+          console.error("Razorpay secret not configured");
           return res.status(500).json({
             success: false,
-            message: "Failed to fetch package data",
+            message: "Server configuration error",
           });
         }
-        if (!packageResults || packageResults.length === 0) {
-          return res
-            .status(400)
-            .json({ success: false, message: "Invalid subscription package" });
+        if (razorpay_order_id && razorpay_payment_id && razorpay_signature) {
+          const generated_signature = crypto
+            .createHmac("sha256", secret)
+            .update(razorpay_order_id + "|" + razorpay_payment_id)
+            .digest("hex");
+          if (generated_signature !== razorpay_signature) {
+            console.error("Signature verification failed", {
+              generated_signature,
+              provided_signature: razorpay_signature,
+            });
+            finalPaymentStatus = "failed";
+            subscription_status = "inactive";
+          } else {
+            finalPaymentStatus = "processing";
+            subscription_status = "processing";
+          }
+        } else {
+          console.error("Missing Razorpay verification details", {
+            razorpay_order_id,
+            razorpay_payment_id,
+            razorpay_signature,
+          });
+          finalPaymentStatus = "failed";
+          subscription_status = "inactive";
         }
-        const {
-          duration_days,
-          actual_amount,
-          gst,
-          sgst,
-          gst_percentage,
-          gst_number,
-          rera_number,
-        } = packageResults[0];
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid payment_status value",
+        });
+      }
+      const [packageResults] = await pool.promise().execute(
+        `SELECT duration_days, actual_amount, gst, sgst, gst_percentage, gst_number, rera_number 
+         FROM packageNames 
+         WHERE name = ? LIMIT 1`,
+        [subscription_package]
+      );
+      if (!packageResults || packageResults.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid subscription package",
+        });
+      }
+      const {
+        duration_days,
+        actual_amount,
+        gst,
+        sgst,
+        gst_percentage,
+        gst_number,
+        rera_number,
+      } = packageResults[0];
+      if (finalPaymentStatus === "processing") {
+        subscription_expiry_date = moment()
+          .add(duration_days, "days")
+          .format("YYYY-MM-DD HH:mm:ss");
+      }
+      let invoice_number = null;
+      let invoice_url = null;
+      await pool.promise().query("START TRANSACTION");
+      try {
         if (finalPaymentStatus === "processing") {
-          subscription_expiry_date = moment()
-            .add(duration_days, "days")
-            .format("YYYY-MM-DD HH:mm:ss");
+          const [rows] = await pool
+            .promise()
+            .execute(
+              `SELECT invoice_number FROM invoices ORDER BY id DESC LIMIT 1 FOR UPDATE`
+            );
+          let nextNumber = 1;
+          if (rows.length > 0 && rows[0].invoice_number) {
+            const last = rows[0].invoice_number;
+            nextNumber = parseInt(last.split("-")[1]) + 1;
+          }
+          invoice_number = `INV-${String(nextNumber).padStart(5, "0")}`;
         }
-        const updateUserQuery = `
-          UPDATE users 
-          SET subscription_package = ?, 
-              subscription_start_date = ?, 
-              subscription_expiry_date = ?, 
-              subscription_status = ?
-          WHERE id = ?`;
-        pool.execute(
-          updateUserQuery,
+        await pool.promise().execute(
+          `UPDATE users 
+           SET subscription_package = ?, 
+               subscription_start_date = ?, 
+               subscription_expiry_date = ?, 
+               subscription_status = ?
+           WHERE id = ?`,
           [
             mappedPackageName,
             subscription_start_date,
             subscription_expiry_date,
             subscription_status,
             user_id,
-          ],
-          (err) => {
-            if (err) {
-              console.error("User Update Error:", err);
-              return res.status(500).json({
-                success: false,
-                message: "Failed to update user data",
-              });
-            }
-            pool.execute(
-              `INSERT INTO payment_details (
-                user_id,user_type,city, name, mobile, email,
-                subscription_package, subscription_start_date, subscription_expiry_date,
-                subscription_status, payment_status, payment_amount,
-                payment_reference, payment_mode, payment_gateway,
-                razorpay_order_id, razorpay_payment_id, razorpay_signature,
-                actual_amount, gst, sgst, gst_percentage, gst_number, rera_number
-              ) VALUES (?,?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-              [
-                user_id,
-                user_type,
-                city,
-                name,
-                mobile,
-                email,
-                mappedPackageName,
-                subscription_start_date,
-                subscription_expiry_date,
-                subscription_status,
-                finalPaymentStatus,
-                payment_amount || 0,
-                finalPaymentReference,
-                payment_mode || null,
-                payment_gateway || null,
-                razorpay_order_id || null,
-                finalRazorpayPaymentId,
-                finalRazorpaySignature,
-                actual_amount || 0,
-                gst || 0,
-                sgst || 0,
-                gst_percentage || 18.0,
-                gst_number || null,
-                rera_number || null,
-              ],
-              (err) => {
-                if (err) {
-                  console.error("DB Insert Error:", err);
-                  return res.status(500).json({
-                    success: false,
-                    message: "Failed to store payment data",
-                  });
-                }
-                res.json({
-                  success: finalPaymentStatus === "processing",
-                  message:
-                    finalPaymentStatus === "processing"
-                      ? "Payment recorded as processing"
-                      : `Payment ${finalPaymentStatus}`,
-                });
-              }
-            );
-          }
+          ]
         );
+        if (finalPaymentStatus === "processing" && invoice_number) {
+          const subscriptionData = {
+            id: user_id,
+            invoice_number,
+            created_at: moment().toISOString(),
+            name,
+            mobile,
+            gst_number: gst_number || "N/A",
+            rera_number: rera_number || "N/A",
+            subscription_package,
+            payment_status: finalPaymentStatus,
+            gst_percentage,
+            payment_mode,
+            payment_amount,
+            actual_amount,
+            gst,
+            sgst,
+            transaction_time: moment().toISOString(),
+            payment_gateway,
+            subscription_start_date,
+            subscription_expiry_date,
+          };
+          const pdfPath = await generateInvoicePDF(subscriptionData);
+          invoice_url = `https://api.meetowner.in/uploads/invoices/invoice-${invoice_number}.pdf`;
+          await pool.promise().execute(
+            `INSERT INTO invoices (invoice_number, user_id, payment_status, subscription_status, invoice_url) 
+             VALUES (?, ?, ?, ?, ?)`,
+            [
+              invoice_number,
+              user_id,
+              finalPaymentStatus,
+              subscription_status,
+              invoice_url,
+            ]
+          );
+        }
+        await pool.promise().execute(
+          `INSERT INTO payment_details (
+            user_id, user_type, city, name, mobile, email,
+            subscription_package, subscription_start_date, subscription_expiry_date,
+            subscription_status, payment_status, payment_amount,
+            payment_reference, payment_mode, payment_gateway,
+            razorpay_order_id, razorpay_payment_id, razorpay_signature,
+            actual_amount, gst, sgst, gst_percentage, gst_number, rera_number,
+            invoice_number, invoice_url
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            user_id,
+            user_type,
+            city,
+            name,
+            mobile,
+            email,
+            mappedPackageName,
+            subscription_start_date,
+            subscription_expiry_date,
+            subscription_status,
+            finalPaymentStatus,
+            payment_amount || 0,
+            finalPaymentReference,
+            payment_mode || null,
+            payment_gateway || null,
+            razorpay_order_id || null,
+            finalRazorpayPaymentId,
+            finalRazorpaySignature,
+            actual_amount || 0,
+            gst || 0,
+            sgst || 0,
+            gst_percentage || 18.0,
+            gst_number || null,
+            rera_number || null,
+            invoice_number || null,
+            invoice_url || null,
+          ]
+        );
+        await pool.promise().query("COMMIT");
+        if (invoice_url) {
+          await sendInvoice(name, mobile, payment_amount, invoice_url);
+        }
+        res.json({
+          success: finalPaymentStatus === "processing",
+          message:
+            finalPaymentStatus === "processing"
+              ? "Payment verified, invoice generated"
+              : `Payment ${finalPaymentStatus}`,
+          invoice_number,
+          invoice_url,
+        });
+      } catch (err) {
+        await pool.promise().query("ROLLBACK");
+        console.error("Error in verifyPayment:", err);
+        res.status(500).json({
+          success: false,
+          message: "Server error during payment verification",
+        });
       }
-    );
+    } catch (err) {
+      console.error("Error in verifyPayment:", err);
+      res.status(500).json({
+        success: false,
+        message: "Server error during payment verification",
+      });
+    }
   },
   checkSubscription: (req, res) => {
     const { user_id } = req.body;
@@ -417,10 +864,8 @@ module.exports = {
           .json({ success: false, message: "Invalid webhook signature" });
       }
       const event = body.event;
-      console.log("Webhook event received:", { eventId, event });
       const isDuplicate = await checkDuplicateEvent(eventId);
       if (isDuplicate) {
-        console.log("Duplicate webhook event ignored:", eventId);
         return res
           .status(200)
           .json({ success: true, message: "Duplicate event ignored" });
@@ -458,10 +903,6 @@ module.exports = {
             paymentData,
             { timeout: 10000 }
           );
-          console.log("verifyPaymentLink called successfully:", {
-            eventId,
-            user_id: paymentData.user_id,
-          });
           return res
             .status(200)
             .json({ success: true, message: "Webhook handled" });
@@ -477,7 +918,6 @@ module.exports = {
             .json({ success: false, message: "Failed to process payment" });
         }
       }
-      console.log("Event ignored:", { eventId, event });
       return res.status(200).json({ success: true, message: "Event ignored" });
     } catch (error) {
       console.error("Webhook error:", {
@@ -500,7 +940,7 @@ module.exports = {
     }
     try {
       const [subscriptions] = await pool.promise().execute(
-        `SELECT id, name, mobile,payment_amount FROM payment_details 
+        `SELECT id, name, mobile,payment_amount,invoice_url  FROM payment_details 
          WHERE user_id = ? 
          ORDER BY created_at DESC LIMIT 1`,
         [user_id]
@@ -511,31 +951,18 @@ module.exports = {
           message: "No subscriptions found",
         });
       }
-      const { id: paymentId, name, mobile, payment_amount } = subscriptions[0];
-      let invoice_number = null;
-      if (payment_status.toLowerCase() === "success") {
-        const [rows] = await pool
-          .promise()
-          .execute(
-            `SELECT invoice_number FROM invoices ORDER BY id DESC LIMIT 1`
-          );
-        let nextNumber = 1;
-        if (rows.length > 0 && rows[0].invoice_number) {
-          const last = rows[0].invoice_number;
-          nextNumber = parseInt(last.split("-")[1]) + 1;
-        }
-        invoice_number = `INV-${String(nextNumber).padStart(5, "0")}`;
-        await pool.promise().execute(
-          `INSERT INTO invoices (invoice_number, user_id, payment_status, subscription_status) 
-           VALUES (?, ?, ?, ?)`,
-          [invoice_number, user_id, payment_status, subscription_status]
-        );
-      }
+      const {
+        id: paymentId,
+        name,
+        mobile,
+        payment_amount,
+        invoice_url,
+      } = subscriptions[0];
       await pool.promise().execute(
         `UPDATE payment_details 
-         SET payment_status = ?, subscription_status = ?, invoice_number = ? 
+         SET payment_status = ?, subscription_status = ? 
          WHERE id = ?`,
-        [payment_status, subscription_status, invoice_number, paymentId]
+        [payment_status, subscription_status, paymentId]
       );
       await pool
         .promise()
@@ -545,19 +972,10 @@ module.exports = {
         ]);
       if (name && mobile) {
         await sendWhatsappLeads(name, mobile);
-        await sendInvoice(
-          name,
-          mobile,
-          payment_amount,
-          "https://files.gallabox.com/677f66df176346e7ae5fa5b8/2d3b09fd-cc6c-4b02-8b30-5a7f711283a6-invoiceINV00005.pdf"
-        );
       }
       return res.status(200).json({
         success: true,
-        message: `Subscription and payment updated.${
-          invoice_number ? ` Invoice ${invoice_number} generated.` : ""
-        }`,
-        ...(invoice_number && { invoice_number }),
+        message: `Subscription and payment updated.`,
       });
     } catch (err) {
       console.error("Error updating subscription:", err);
