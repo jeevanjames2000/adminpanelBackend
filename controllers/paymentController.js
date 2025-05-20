@@ -212,10 +212,10 @@ const generateInvoicePDF = (subscription) => {
           endDate: subscription.subscription_expiry_date.split("T")[0],
         },
         terms: [
-          "Payment is due within 14 days",
-          "Late payment may incur additional charges",
-          "All prices are in Indian Rupees (INR)",
-          "This is a computer-generated invoice, no signature required",
+          "Payment must be made within 14 days of the invoice date.",
+          "Payments are non-refundable once completed.",
+          "All amounts are in Indian Rupees (INR).",
+          "This invoice is system-generated and does not require a signature.",
         ],
       };
       const invoicesDir = path.join(__dirname, "../uploads/invoices");
@@ -687,7 +687,7 @@ module.exports = {
             gst_number: gst_number || "N/A",
             rera_number: rera_number || "N/A",
             subscription_package,
-            payment_status: finalPaymentStatus,
+            payment_status: "success",
             gst_percentage,
             payment_mode,
             payment_amount,
@@ -965,7 +965,9 @@ module.exports = {
           subscription_status,
           user_id,
         ]);
-      if (name && mobile) {
+
+      if (name && mobile && invoice_url) {
+        await sendInvoice(name, mobile, payment_amount, invoice_url);
         await sendWhatsappLeads(name, mobile);
       }
       return res.status(200).json({
@@ -1278,17 +1280,17 @@ module.exports = {
     }
   },
   getPaymentDetailsByID: (req, res) => {
-    const { user_id } = req.query;
-    if (!user_id) {
-      return res.status(400).json({ error: "user_id is required" });
+    const { invoice_number } = req.query;
+    if (!invoice_number) {
+      return res.status(400).json({ error: "invoice_number is required" });
     }
     const query = `
       SELECT * 
       FROM payment_details 
-      WHERE user_id = ? AND payment_status = 'success'
+      WHERE invoice_number = ?
       ORDER BY created_at DESC
     `;
-    pool.query(query, [user_id], (err, results) => {
+    pool.query(query, [invoice_number], (err, results) => {
       if (err) {
         console.error("Error fetching invoice data:", err);
         return res.status(500).json({ error: "Database error" });
@@ -1364,6 +1366,7 @@ module.exports = {
         console.error("Error fetching merged data:", err);
         return res.status(500).json({ error: "Database error" });
       }
+      console.log("results: ", results);
       res.status(200).json({ invoices: results });
     });
   },
@@ -1428,12 +1431,33 @@ module.exports = {
   },
   getAllExpiringSoon: (req, res) => {
     const query = `
-    SELECT id as user_id, name, email, subscription_expiry_date
-    FROM users
-    WHERE subscription_status = 'active'
-      AND subscription_expiry_date > NOW()
-      AND subscription_expiry_date <= DATE_ADD(NOW(), INTERVAL 7 DAY)
-  `;
+      SELECT 
+        u.id AS user_id, 
+        u.name, 
+        u.email,
+        u.mobile,
+        u.user_type,
+        u.subscription_package,
+        u.subscription_expiry_date,
+        p.id AS payment_id,
+        p.payment_amount,
+        p.payment_status,
+        p.city,
+        p.created_at AS payment_date
+      FROM users u
+      LEFT JOIN (
+        SELECT pd.*
+        FROM payment_details pd
+        JOIN (
+          SELECT user_id, MAX(created_at) AS latest_payment
+          FROM payment_details
+          GROUP BY user_id
+        ) latest ON pd.user_id = latest.user_id AND pd.created_at = latest.latest_payment
+      ) p ON u.id = p.user_id
+      WHERE u.subscription_status = 'active'
+        AND u.subscription_expiry_date > NOW()
+        AND u.subscription_expiry_date <= DATE_ADD(NOW(), INTERVAL 7 DAY)
+    `;
 
     pool.query(query, (err, results) => {
       if (err) {

@@ -202,41 +202,68 @@ module.exports = {
   getAllPlaces: (req, res) => {
     const page = parseInt(req.query.page) || 1;
     const search = req.query.search || "";
+    const stateFilter = req.query.state || "";
+    const cityFilter = req.query.city || "";
+
     const limit = 10;
     const offset = (page - 1) * limit;
-    const searchQuery = `%${search}%`;
-    const whereCondition = search
-      ? "WHERE state LIKE ? OR city LIKE ? OR locality LIKE ?"
-      : "";
-    const countSql = `SELECT COUNT(*) AS total FROM (
-                    SELECT DISTINCT id, state, city, locality 
-                    FROM city_localities 
-                    ${whereCondition}
-                  ) AS distinct_places`;
-    const countParams = search ? [searchQuery, searchQuery, searchQuery] : [];
-    pool.query(countSql, countParams, (err, countResult) => {
+
+    const conditions = [];
+    const params = [];
+
+    if (search) {
+      conditions.push("(state LIKE ? OR city LIKE ? OR locality LIKE ?)");
+      const searchQuery = `%${search}%`;
+      params.push(searchQuery, searchQuery, searchQuery);
+    }
+
+    if (stateFilter) {
+      conditions.push("state = ?");
+      params.push(stateFilter);
+    }
+
+    if (cityFilter) {
+      conditions.push("city = ?");
+      params.push(cityFilter);
+    }
+
+    const whereClause =
+      conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
+
+    const countSql = `
+      SELECT COUNT(*) AS total FROM (
+        SELECT DISTINCT id, state, city, locality, status
+        FROM city_localities
+        ${whereClause}
+      ) AS distinct_places
+    `;
+
+    pool.query(countSql, params, (err, countResult) => {
       if (err) {
         console.error("Error counting places", err);
         return res.status(500).json({ error: "Something went wrong" });
       }
+
       const total = countResult[0].total;
+
       const dataSql = `
-  SELECT DISTINCT id, state, city, locality 
-  FROM city_localities
-  ${whereCondition}  -- Move the WHERE condition here
-  ORDER BY id DESC
-  LIMIT ? OFFSET ?
-`;
-      const dataParams = search
-        ? [searchQuery, searchQuery, searchQuery, limit, offset]
-        : [limit, offset];
+        SELECT DISTINCT id, state, city, locality, status
+        FROM city_localities
+        ${whereClause}
+        ORDER BY id DESC
+        LIMIT ? OFFSET ?
+      `;
+
+      const dataParams = [...params, limit, offset];
+
       pool.query(dataSql, dataParams, (err, results) => {
         if (err) {
           console.error("Error fetching places", err);
           return res.status(500).json({ error: "Something went wrong" });
         }
+
         res.status(200).json({
-          page: page,
+          page,
           perPage: limit,
           currentCount: results.length,
           totalPlaces: total,
@@ -247,7 +274,8 @@ module.exports = {
     });
   },
   getAllStates: (req, res) => {
-    pool.query("SELECT state FROM city_localities", (err, results) => {
+    const query = "SELECT DISTINCT state, status FROM city_localities";
+    pool.query(query, (err, results) => {
       if (err) {
         console.error("Error fetching city_localities:", err);
         return res.status(500).json({ error: "Database query failed" });
@@ -256,13 +284,16 @@ module.exports = {
     });
   },
   getAllCities: (req, res) => {
-    pool.query("SELECT city FROM city_localities", (err, results) => {
-      if (err) {
-        console.error("Error fetching city_localities:", err);
-        return res.status(500).json({ error: "Database query failed" });
+    pool.query(
+      "SELECT DISTINCT city,state,status FROM city_localities",
+      (err, results) => {
+        if (err) {
+          console.error("Error fetching city_localities:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        res.status(200).json(results);
       }
-      res.status(200).json(results);
-    });
+    );
   },
   deletePlace: (req, res) => {
     const { state, city, locality } = req.body;
@@ -289,8 +320,16 @@ module.exports = {
     });
   },
   editPlace: (req, res) => {
-    const { oldState, oldCity, oldLocality, newState, newCity, newLocality } =
-      req.body;
+    const {
+      oldState,
+      oldCity,
+      oldLocality,
+      newState,
+      newCity,
+      newLocality,
+      status,
+    } = req.body;
+
     if (
       !oldState ||
       !oldCity ||
@@ -303,40 +342,49 @@ module.exports = {
         .status(400)
         .json({ error: "Old and new State, City, and Locality are required" });
     }
+
     const updateSql = `
-    UPDATE city_localities 
-    SET state = ?, city = ?, locality = ?
-    WHERE state = ? AND city = ? AND locality = ?
-  `;
+      UPDATE city_localities 
+      SET state = ?, city = ?, locality = ?, status = ?
+      WHERE state = ? AND city = ? AND locality = ?
+    `;
+
     pool.query(
       updateSql,
-      [newState, newCity, newLocality, oldState, oldCity, oldLocality],
+      [newState, newCity, newLocality, status, oldState, oldCity, oldLocality],
       (err, result) => {
         if (err) {
-          console.error("Error updating place", err);
+          console.error("Error updating place:", err);
           return res.status(500).json({ error: "Something went wrong" });
         }
+
+        console.log("SQL Result:", result);
+
         if (result.affectedRows === 0) {
           return res
             .status(404)
             .json({ message: "No matching place found to update" });
         }
-        res.status(200).json({ message: "Place updated successfully" });
+
+        return res.status(200).json({
+          message: `Updated ${result.affectedRows} record(s) successfully`,
+        });
       }
     );
   },
+
   insertPlace: (req, res) => {
-    const { state, city, locality } = req.body;
+    const { state, city, locality, status } = req.body;
     if (!state || !city || !locality) {
       return res
         .status(400)
         .json({ error: "State, City, and Locality are required" });
     }
     const insertSql = `
-    INSERT INTO city_localities (state, city, locality)
-    VALUES (?, ?, ?)
+    INSERT INTO city_localities (state, city, locality,status)
+    VALUES (?, ?, ?,?)
   `;
-    pool.query(insertSql, [state, city, locality], (err, result) => {
+    pool.query(insertSql, [state, city, locality, status], (err, result) => {
       if (err) {
         console.error("Error inserting place", err);
         return res.status(500).json({ error: "Something went wrong" });
