@@ -220,23 +220,32 @@ module.exports = {
   },
   getAds: (req, res) => {
     const ads_page = (req.query.ads_page || "").trim().toLowerCase();
-    let query = "";
+    const city = (req.query.city || "").trim().toLowerCase();
+
+    let query = "SELECT * FROM ads_details";
     let queryParams = [];
-    if (ads_page === "all_ads") {
-      query = "SELECT * FROM ads_details";
-    } else if (ads_page) {
-      query = "SELECT * FROM ads_details WHERE ads_page = ?";
-      queryParams = [ads_page];
-    } else {
-      return res
-        .status(400)
-        .json({ message: "ads_page query param is required" });
+    let conditions = [];
+
+    if (ads_page && ads_page !== "all_ads") {
+      conditions.push("LOWER(ads_page) = ?");
+      queryParams.push(ads_page);
     }
+
+    if (city) {
+      conditions.push("LOWER(city) = ?");
+      queryParams.push(city);
+    }
+
+    if (conditions.length > 0) {
+      query += " WHERE " + conditions.join(" AND ");
+    }
+
     pool.query(query, queryParams, async (err, adsResults) => {
       if (err) {
         console.error("Error fetching ads:", err);
         return res.status(500).json({ message: "Error fetching ads" });
       }
+
       try {
         const enrichedAds = await Promise.all(
           adsResults.map((ad) => {
@@ -263,13 +272,14 @@ module.exports = {
             });
           })
         );
+
         const shuffledAds = enrichedAds.sort(() => 0.5 - Math.random());
         res.status(200).json({
           message: "Ads with selected property data fetched successfully",
           ads: shuffledAds,
         });
       } catch (error) {
-        console.error("Error fetching property data:", error);
+        console.error("Error enriching property data:", error);
         return res
           .status(500)
           .json({ message: "Error fetching related property data" });
