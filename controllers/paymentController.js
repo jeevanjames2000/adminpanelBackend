@@ -36,9 +36,7 @@ const sendWhatsappLeads = async (name, mobile) => {
       payload,
       { headers }
     );
-    if (response.status === 202) {
-      return response.status === 202;
-    }
+    return response.status === 202;
   } catch (error) {
     console.error("Failed to send WhatsApp message:", error);
     return false;
@@ -792,14 +790,11 @@ module.exports = {
     }
     pool.execute(
       `SELECT 
-        u.subscription_expiry_date, 
-        u.subscription_status,
-        (SELECT payment_status FROM payment_details 
-         WHERE user_id = ? 
-         ORDER BY id DESC LIMIT 1) AS latest_payment_status
-     FROM users u 
-     WHERE u.id = ?`,
-      [user_id, user_id],
+        subscription_expiry_date, 
+        subscription_status 
+       FROM users 
+       WHERE id = ?`,
+      [user_id],
       (err, results) => {
         if (err) {
           console.error("DB Query Error:", err);
@@ -813,21 +808,14 @@ module.exports = {
             .status(400)
             .json({ success: false, message: "User not found" });
         }
-        const {
-          subscription_expiry_date,
-          subscription_status,
-          latest_payment_status,
-        } = results[0];
+        const { subscription_expiry_date, subscription_status } = results[0];
         const currentDate = moment();
         const expiryDate = moment(subscription_expiry_date);
         const isSubscriptionActive =
-          subscription_status === "active" &&
-          expiryDate.isAfter(currentDate) &&
-          latest_payment_status === "success";
+          subscription_status === "active" && expiryDate.isAfter(currentDate);
         res.json({
           success: true,
           isSubscriptionActive,
-          payment_status: latest_payment_status || "none",
           expiry_date: subscription_expiry_date,
         });
       }
@@ -940,7 +928,7 @@ module.exports = {
     }
     try {
       const [subscriptions] = await pool.promise().execute(
-        `SELECT id, name, mobile,payment_amount,invoice_url  FROM payment_details 
+        `SELECT id, name, mobile,payment_amount,invoice_url,invoice_number  FROM payment_details 
          WHERE user_id = ? 
          ORDER BY created_at DESC LIMIT 1`,
         [user_id]
@@ -957,12 +945,19 @@ module.exports = {
         mobile,
         payment_amount,
         invoice_url,
+        invoice_number,
       } = subscriptions[0];
       await pool.promise().execute(
         `UPDATE payment_details 
          SET payment_status = ?, subscription_status = ? 
          WHERE id = ?`,
         [payment_status, subscription_status, paymentId]
+      );
+      await pool.promise().execute(
+        `UPDATE invoices 
+         SET payment_status = ?, subscription_status = ? 
+         WHERE invoice_number = ?`,
+        [payment_status, subscription_status, invoice_number]
       );
       await pool
         .promise()
@@ -1282,7 +1277,7 @@ module.exports = {
       });
     }
   },
-  getInvoiceByID: (req, res) => {
+  getPaymentDetailsByID: (req, res) => {
     const { user_id } = req.query;
     if (!user_id) {
       return res.status(400).json({ error: "user_id is required" });
@@ -1299,6 +1294,181 @@ module.exports = {
         return res.status(500).json({ error: "Database error" });
       }
       res.status(200).json(results);
+    });
+  },
+  getInvoiceByID: (req, res) => {
+    const { invoice_number } = req.query;
+    if (!invoice_number) {
+      return res.status(400).json({ error: "invoice_number is required" });
+    }
+    const query = `
+      SELECT * 
+      FROM invoices 
+      WHERE invoice_number = ?
+      ORDER BY created_at DESC
+    `;
+    pool.query(query, [invoice_number], (err, results) => {
+      if (err) {
+        console.error("Error fetching invoice data:", err);
+        return res.status(500).json({ error: "Database error" });
+      }
+      res.status(200).json(results);
+    });
+  },
+  getAllInvoicesByID: (req, res) => {
+    const { user_id } = req.query;
+    if (!user_id) {
+      return res.status(400).json({ error: "user_id is required" });
+    }
+    const query = `
+      SELECT 
+        i.*, 
+        (
+          SELECT pd.subscription_start_date 
+          FROM payment_details pd 
+          WHERE pd.user_id = i.user_id 
+            AND pd.subscription_start_date <= i.created_at
+          ORDER BY pd.subscription_start_date DESC 
+          LIMIT 1
+        ) AS subscription_start_date,
+        (
+          SELECT pd.subscription_expiry_date 
+          FROM payment_details pd 
+          WHERE pd.user_id = i.user_id 
+            AND pd.subscription_start_date <= i.created_at
+          ORDER BY pd.subscription_start_date DESC 
+          LIMIT 1
+        ) AS subscription_expiry_date,
+        (
+          SELECT pd.payment_amount 
+          FROM payment_details pd 
+          WHERE pd.user_id = i.user_id 
+            AND pd.subscription_start_date <= i.created_at
+          ORDER BY pd.subscription_start_date DESC 
+          LIMIT 1
+        ) AS payment_amount,
+        (
+          SELECT pd.subscription_package 
+          FROM payment_details pd 
+          WHERE pd.user_id = i.user_id 
+            AND pd.subscription_start_date <= i.created_at
+          ORDER BY pd.subscription_start_date DESC 
+          LIMIT 1
+        ) AS subscription_package
+      FROM invoices i
+      WHERE i.user_id = ?
+      ORDER BY i.created_at DESC
+    `;
+    pool.query(query, [user_id], (err, results) => {
+      if (err) {
+        console.error("Error fetching merged data:", err);
+        return res.status(500).json({ error: "Database error" });
+      }
+      res.status(200).json({ invoices: results });
+    });
+  },
+  expiringSoonPackage: (req, res) => {
+    const { user_id } = req.query;
+    if (!user_id) {
+      return res
+        .status(400)
+        .json({ success: false, message: "User ID is required" });
+    }
+    pool.execute(
+      `SELECT subscription_expiry_date, subscription_status FROM users WHERE id = ?`,
+      [user_id],
+      (err, results) => {
+        if (err) {
+          console.error("DB Query Error:", err);
+          return res.status(500).json({
+            success: false,
+            message: "Failed to check subscription expiry",
+          });
+        }
+        if (!results || results.length === 0) {
+          return res
+            .status(400)
+            .json({ success: false, message: "User not found" });
+        }
+        const { subscription_expiry_date, subscription_status } = results[0];
+        const currentDate = moment();
+        const expiryDate = moment(subscription_expiry_date);
+        if (
+          subscription_status === "active" &&
+          expiryDate.isAfter(currentDate)
+        ) {
+          const daysLeft = expiryDate.diff(currentDate, "days");
+          console.log("daysLeft: ", daysLeft);
+          if (daysLeft <= 7) {
+            const formattedDate = expiryDate.format(
+              "DD MMMM YYYY [at] hh:mm A"
+            );
+            return res.status(200).json({
+              success: true,
+              expiringSoon: true,
+              message: `Your subscription will expire on ${formattedDate}`,
+              expiry_date: subscription_expiry_date,
+            });
+          }
+          return res.status(200).json({
+            success: true,
+            expiringSoon: false,
+            message: "Your subscription is active and not expiring soon.",
+            expiry_date: subscription_expiry_date,
+          });
+        }
+        return res.status(200).json({
+          success: false,
+          expiringSoon: false,
+          message: "Subscription is inactive or already expired.",
+          expiry_date: subscription_expiry_date,
+        });
+      }
+    );
+  },
+  getAllExpiringSoon: (req, res) => {
+    const query = `
+    SELECT id as user_id, name, email, subscription_expiry_date
+    FROM users
+    WHERE subscription_status = 'active'
+      AND subscription_expiry_date > NOW()
+      AND subscription_expiry_date <= DATE_ADD(NOW(), INTERVAL 7 DAY)
+  `;
+
+    pool.query(query, (err, results) => {
+      if (err) {
+        console.error("DB Query Error:", err);
+        return res.status(500).json({
+          success: false,
+          message: "Failed to fetch expiring subscriptions",
+        });
+      }
+
+      if (!results || results.length === 0) {
+        return res.status(200).json({
+          success: true,
+          expiringSoon: false,
+          message: "No subscriptions are expiring within 7 days.",
+          users: [],
+        });
+      }
+
+      const users = results.map((user) => {
+        const expiryFormatted = moment(user.subscription_expiry_date).format(
+          "DD MMMM YYYY [at] hh:mm A"
+        );
+        return {
+          ...user,
+          message: `Subscription will expire on ${expiryFormatted}`,
+        };
+      });
+
+      return res.status(200).json({
+        success: true,
+        expiringSoon: true,
+        total: users.length,
+        users,
+      });
     });
   },
 };
