@@ -11,37 +11,36 @@ const sendWhatsappLeads = async (name, mobile) => {
     channelId: "67a9e14542596631a8cfc87b",
     channelType: "whatsapp",
     recipient: {
-      name: name,
       phone: `91${mobile}`,
     },
     whatsapp: {
       type: "template",
       template: {
-        templateName: "listing_alret",
+        templateName: "account_activation_status",
         bodyValues: {
           name,
-          phone: mobile,
         },
       },
     },
   };
+
   const headers = {
     apiKey: "67e3a37bfa6fbc8b1aa2edcf",
     apiSecret: "a9fe1160c20f491eb00389683b29ec6b",
     "Content-Type": "application/json",
   };
+
   try {
     const response = await axios.post(
       "https://server.gallabox.com/devapi/messages/whatsapp",
       payload,
       { headers }
     );
-    return response.status === 202;
-  } catch (error) {
-    console.error("Failed to send WhatsApp message:", error);
-    return false;
-  }
+
+    response.status === 202;
+  } catch (error) {}
 };
+
 const sendInvoice = async (name, mobile, amount, invoiceUrl) => {
   const payload = {
     channelId: "67a9e14542596631a8cfc87b",
@@ -1366,7 +1365,6 @@ module.exports = {
         console.error("Error fetching merged data:", err);
         return res.status(500).json({ error: "Database error" });
       }
-      console.log("results: ", results);
       res.status(200).json({ invoices: results });
     });
   },
@@ -1401,7 +1399,6 @@ module.exports = {
           expiryDate.isAfter(currentDate)
         ) {
           const daysLeft = expiryDate.diff(currentDate, "days");
-          console.log("daysLeft: ", daysLeft);
           if (daysLeft <= 7) {
             const formattedDate = expiryDate.format(
               "DD MMMM YYYY [at] hh:mm A"

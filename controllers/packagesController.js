@@ -22,6 +22,7 @@ module.exports = {
         p.gst_number,
         p.rera_number,
         p.package_for,
+        pr.id,
         pr.rule_name,
         pr.included
       FROM packageNames p
@@ -64,6 +65,7 @@ module.exports = {
         }
         if (row.rule_name) {
           packagesMap[id].rules.push({
+            id: row.id,
             name: row.rule_name,
             included: row.included === 1,
           });
@@ -337,6 +339,74 @@ module.exports = {
         count: results.length,
         data: results,
       });
+    });
+  },
+  insertRules: (req, res) => {
+    const { package_id, package_for, rules } = req.body;
+    if (!package_id || !package_for || !Array.isArray(rules)) {
+      return res.status(400).json({
+        message: "package_id, package_for, and rules are required",
+      });
+    }
+    const values = rules.map((rule) => [
+      package_id,
+      rule.name,
+      rule.included ? 1 : 0,
+    ]);
+    const insertQuery =
+      "INSERT INTO package_rules (package_id, rule_name, included) VALUES ?";
+    pool.query(insertQuery, [values], (err) => {
+      if (err) {
+        return res.status(500).json({
+          message: "Error inserting rules",
+          error: err.message,
+        });
+      }
+      res.json({ message: "Rules inserted successfully" });
+    });
+  },
+  editRule: (req, res) => {
+    const { id, rule_name, included } = req.body;
+    if (!id || !rule_name || typeof included !== "boolean") {
+      return res.status(400).json({
+        message: "id, rule_name, and included (boolean) are required",
+      });
+    }
+    const query = `
+      UPDATE package_rules 
+      SET rule_name = ?, included = ? 
+      WHERE id = ?
+    `;
+    pool.query(query, [rule_name, included ? 1 : 0, id], (err, result) => {
+      if (err) {
+        return res.status(500).json({
+          message: "Error updating rule",
+          error: err.message,
+        });
+      }
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: "Rule not found" });
+      }
+      res.json({ message: "Rule updated successfully" });
+    });
+  },
+  deleteRule: (req, res) => {
+    const { id } = req.query;
+    if (!id) {
+      return res.status(400).json({ message: "Rule id is required" });
+    }
+    const query = "DELETE FROM package_rules WHERE id = ?";
+    pool.query(query, [id], (err, result) => {
+      if (err) {
+        return res.status(500).json({
+          message: "Error deleting rule",
+          error: err.message,
+        });
+      }
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ message: "Rule not found" });
+      }
+      res.json({ message: "Rule deleted successfully" });
     });
   },
 };

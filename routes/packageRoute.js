@@ -8,4 +8,8 @@ router.get("/getSubscriptionDetails", packageController.getSubscriptionDetails);
 router.post("/createSubscription", packageController.createSubscription);
 router.post("/updateSubscription", packageController.updateSubscription);
 router.get("/expiringSoon", packageController.expiringSoon);
+router.post("/insertRules", packageController.insertRules);
+router.post("/editRule", packageController.editRule);
+router.delete("/deleteRule", packageController.deleteRule);
+
 module.exports = router;
