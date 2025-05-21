@@ -136,6 +136,7 @@ module.exports = {
         bedrooms,
         priceFilter,
         search = "",
+        city,
         page = 1,
       } = req.query;
       const conditions = [
@@ -179,6 +180,10 @@ module.exports = {
       if (property_in) {
         conditions.push("p.property_in = ?");
         values.push(property_in);
+      }
+      if (city) {
+        conditions.push("p.city_id = ?");
+        values.push(city);
       }
       let searchClause = "";
       const searchValues = [];
