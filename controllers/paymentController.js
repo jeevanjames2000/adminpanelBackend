@@ -851,12 +851,6 @@ module.exports = {
           .json({ success: false, message: "Invalid webhook signature" });
       }
       const event = body.event;
-      const isDuplicate = await checkDuplicateEvent(eventId);
-      if (isDuplicate) {
-        return res
-          .status(200)
-          .json({ success: true, message: "Duplicate event ignored" });
-      }
       if (event === "payment_link.paid") {
         const linkEntity = body.payload?.payment_link?.entity;
         const paymentEntity = body.payload?.payment?.entity;
@@ -881,6 +875,11 @@ module.exports = {
           payment_gateway: "razorpay",
           razorpay_payment_link_id: linkEntity.id,
           razorpay_payment_id: paymentEntity.id || "",
+          razorpay_order_id: paymentEntity.order_id || "",
+          razorpay_signature:
+            paymentEntity.razorpay_signature ||
+            linkEntity.razorpay_signature ||
+            "",
           payment_status:
             paymentEntity.status === "captured" ? "captured" : "processing",
         };
@@ -914,6 +913,7 @@ module.exports = {
       return res.status(500).json({ success: false, message: "Server error" });
     }
   },
+
   updateSubscription: async (req, res) => {
     const user_id = req.body.user_id || req.query.user_id;
     const subscription_status = req.body.subscription_status;
@@ -1084,6 +1084,7 @@ module.exports = {
           expire_by: moment().add(7, "days").unix(),
         };
         razorpayInstance.paymentLink.create(options, (err, link) => {
+          console.log("link: ", link);
           if (err) {
             console.error("Razorpay Payment Link Error:", err);
             return res.status(500).json({
@@ -1115,9 +1116,12 @@ module.exports = {
       payment_mode,
       payment_gateway,
       razorpay_payment_link_id,
+      razorpay_order_id,
       razorpay_payment_id,
+      razorpay_signature,
       payment_status,
     } = req.body;
+
     if (
       !user_id ||
       !subscription_package ||
@@ -1130,6 +1134,7 @@ module.exports = {
           "Missing required fields: user_id, subscription_package, payment_status, or razorpay_payment_id",
       });
     }
+
     const packageEnumMap = {
       "Free Listing": "free",
       Basic: "basic",
@@ -1144,66 +1149,80 @@ module.exports = {
         message: "Invalid subscription package format",
       });
     }
-    const validStatuses = ["processing", "captured", "failed", "cancelled"];
-    if (!validStatuses.includes(payment_status)) {
-      return res.status(400).json({
-        success: false,
-        message: `Invalid payment_status. Must be one of: ${validStatuses.join(
-          ", "
-        )}`,
-      });
-    }
+
     try {
-      const connection = await pool.getConnection();
-      try {
-        const [existingPayments] = await connection.execute(
+      const [existingPayments] = await pool
+        .promise()
+        .execute(
           `SELECT id FROM payment_details WHERE razorpay_payment_id = ? OR payment_reference = ?`,
           [razorpay_payment_id, payment_reference || razorpay_payment_link_id]
         );
-        if (existingPayments.length > 0) {
-          await connection.release();
-          return res.status(400).json({
-            success: false,
-            message: "Payment already processed",
-          });
+      if (existingPayments.length > 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Payment already processed",
+        });
+      }
+
+      const [packageResults] = await pool.promise().execute(
+        `SELECT duration_days, actual_amount, gst, sgst, gst_percentage, gst_number, rera_number 
+         FROM packageNames 
+         WHERE name = ? LIMIT 1`,
+        [subscription_package]
+      );
+      if (!packageResults || packageResults.length === 0) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid subscription package",
+        });
+      }
+
+      const {
+        duration_days,
+        actual_amount,
+        gst,
+        sgst,
+        gst_percentage,
+        gst_number,
+        rera_number,
+      } = packageResults[0];
+
+      let subscription_start_date = moment().format("YYYY-MM-DD HH:mm:ss");
+      let subscription_expiry_date = subscription_start_date;
+      let subscription_status = "processing";
+      let finalPaymentStatus = payment_status;
+
+      if (payment_status === "cancelled" || payment_status === "failed") {
+        finalPaymentStatus = payment_status;
+        subscription_status = "inactive";
+      } else if (payment_status === "captured") {
+        subscription_status = "active";
+        subscription_expiry_date = moment()
+          .add(duration_days, "days")
+          .format("YYYY-MM-DD HH:mm:ss");
+        finalPaymentStatus = "processing";
+      }
+
+      let invoice_number = null;
+      let invoice_url = null;
+
+      await pool.promise().query("START TRANSACTION");
+      try {
+        if (finalPaymentStatus === "processing") {
+          const [rows] = await pool
+            .promise()
+            .execute(
+              `SELECT invoice_number FROM invoices ORDER BY id DESC LIMIT 1 FOR UPDATE`
+            );
+          let nextNumber = 1;
+          if (rows.length > 0 && rows[0].invoice_number) {
+            const last = rows[0].invoice_number;
+            nextNumber = parseInt(last.split("-")[1]) + 1;
+          }
+          invoice_number = `INV-${String(nextNumber).padStart(5, "0")}`;
         }
-        const [packageResults] = await connection.execute(
-          `SELECT duration_days, actual_amount, gst, sgst, gst_percentage, gst_number, rera_number 
-           FROM packageNames 
-           WHERE name = ? LIMIT 1`,
-          [subscription_package]
-        );
-        if (!packageResults || packageResults.length === 0) {
-          await connection.release();
-          return res.status(400).json({
-            success: false,
-            message: "Invalid subscription package",
-          });
-        }
-        const {
-          duration_days,
-          actual_amount,
-          gst,
-          sgst,
-          gst_percentage,
-          gst_number,
-          rera_number,
-        } = packageResults[0];
-        let subscription_start_date = moment().format("YYYY-MM-DD HH:mm:ss");
-        let subscription_expiry_date = subscription_start_date;
-        let subscription_status =
-          payment_status === "captured" ? "active" : "processing";
-        if (payment_status === "captured") {
-          subscription_expiry_date = moment()
-            .add(duration_days, "days")
-            .format("YYYY-MM-DD HH:mm:ss");
-        } else if (
-          payment_status === "failed" ||
-          payment_status === "cancelled"
-        ) {
-          subscription_status = "inactive";
-        }
-        await connection.execute(
+
+        await pool.promise().execute(
           `UPDATE users 
            SET subscription_package = ?, 
                subscription_start_date = ?, 
@@ -1218,19 +1237,58 @@ module.exports = {
             user_id,
           ]
         );
-        await connection.execute(
+
+        if (finalPaymentStatus === "processing" && invoice_number) {
+          const subscriptionData = {
+            id: user_id,
+            invoice_number,
+            created_at: moment().toISOString(),
+            name,
+            mobile,
+            gst_number: gst_number || "N/A",
+            rera_number: rera_number || "N/A",
+            subscription_package,
+            payment_status: "success",
+            gst_percentage,
+            payment_mode,
+            payment_amount,
+            actual_amount,
+            gst,
+            sgst,
+            transaction_time: moment().toISOString(),
+            payment_gateway,
+            subscription_start_date,
+            subscription_expiry_date,
+          };
+          const pdfPath = await generateInvoicePDF(subscriptionData);
+          invoice_url = `https://api.meetowner.in/uploads/invoices/invoice-${invoice_number}.pdf`;
+          await pool.promise().execute(
+            `INSERT INTO invoices (invoice_number, user_id, payment_status, subscription_status, invoice_url) 
+             VALUES (?, ?, ?, ?, ?)`,
+            [
+              invoice_number,
+              user_id,
+              finalPaymentStatus,
+              subscription_status,
+              invoice_url,
+            ]
+          );
+        }
+
+        await pool.promise().execute(
           `INSERT INTO payment_details (
-            user_id,user_type,city, name, mobile, email,
+            user_id, user_type, city, name, mobile, email,
             subscription_package, subscription_start_date, subscription_expiry_date,
             subscription_status, payment_status, payment_amount,
             payment_reference, payment_mode, payment_gateway,
             razorpay_order_id, razorpay_payment_id, razorpay_signature,
-            actual_amount, gst, sgst, gst_percentage, gst_number, rera_number
-          ) VALUES (?, ?,?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            actual_amount, gst, sgst, gst_percentage, gst_number, rera_number,
+            invoice_number, invoice_url
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             user_id,
-            user_type,
-            city,
+            user_type || null,
+            city || null,
             name || null,
             mobile || null,
             email || null,
@@ -1238,46 +1296,57 @@ module.exports = {
             subscription_start_date,
             subscription_expiry_date,
             subscription_status,
-            payment_status,
+            finalPaymentStatus,
             payment_amount || 0,
             payment_reference || razorpay_payment_link_id,
             payment_mode || "razorpay_link",
             payment_gateway || "razorpay",
-            null,
+            razorpay_order_id,
             razorpay_payment_id,
-            null,
+            razorpay_signature,
             actual_amount || 0,
             gst || 0,
             sgst || 0,
             gst_percentage || 18.0,
             gst_number || null,
             rera_number || null,
+            invoice_number || null,
+            invoice_url || null,
           ]
         );
-        await connection.commit();
-        await connection.release();
+
+        await pool.promise().query("COMMIT");
+
+        if (invoice_url) {
+          await sendInvoice(name, mobile, payment_amount, invoice_url);
+        }
+
         return res.json({
-          success:
-            payment_status === "captured" || payment_status === "processing",
+          success: finalPaymentStatus === "processing",
           message:
-            payment_status === "captured"
-              ? "Payment recorded and subscription activated"
-              : payment_status === "processing"
-              ? "Payment recorded as processing"
-              : `Payment ${payment_status}`,
+            finalPaymentStatus === "processing"
+              ? "Payment verified, invoice generated"
+              : `Payment ${finalPaymentStatus}`,
+          invoice_number,
+          invoice_url,
         });
       } catch (err) {
-        await connection.rollback();
-        throw err;
+        await pool.promise().query("ROLLBACK");
+        console.error("Error in verifyPaymentLink:", err);
+        return res.status(500).json({
+          success: false,
+          message: "Server error during payment processing",
+        });
       }
     } catch (err) {
-      console.error("DB Error:", err);
+      console.error("Error in verifyPaymentLink:", err);
       return res.status(500).json({
         success: false,
-        message: "Failed to process payment data",
+        message: "Server error",
       });
     }
   },
+
   getPaymentDetailsByID: (req, res) => {
     const { invoice_number } = req.query;
     if (!invoice_number) {
