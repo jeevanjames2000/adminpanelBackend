@@ -366,29 +366,149 @@ module.exports = {
     });
   },
   editRule: (req, res) => {
-    const { id, rule_name, included } = req.body;
-    if (!id || !rule_name || typeof included !== "boolean") {
-      return res.status(400).json({
-        message: "id, rule_name, and included (boolean) are required",
-      });
-    }
-    const query = `
-      UPDATE package_rules 
-      SET rule_name = ?, included = ? 
-      WHERE id = ?
-    `;
-    pool.query(query, [rule_name, included ? 1 : 0, id], (err, result) => {
-      if (err) {
+    const {
+      rules,
+      packageNameId,
+      name,
+      price,
+      duration_days,
+      button_text,
+      actual_amount,
+      gst,
+      sgst,
+      gst_percentage,
+      gst_number,
+      rera_number,
+    } = req.body;
+    let ruleUpdated = false;
+    let packageUpdated = false;
+    let ruleErrors = [];
+    let packageError = null;
+    let pending = 0;
+    let responded = false;
+    const sendFinalResponse = () => {
+      if (pending > 0 || responded) return;
+      responded = true;
+      if (ruleErrors.length > 0 || packageError) {
         return res.status(500).json({
-          message: "Error updating rule",
-          error: err.message,
+          message: "Error during update",
+          ruleErrors,
+          packageError,
         });
       }
-      if (result.affectedRows === 0) {
-        return res.status(404).json({ message: "Rule not found" });
+      if (ruleUpdated && packageUpdated) {
+        return res.json({
+          message: "Rule(s) and package updated successfully",
+        });
+      } else if (ruleUpdated) {
+        return res.json({ message: "Rule(s) updated successfully" });
+      } else if (packageUpdated) {
+        return res.json({ message: "Package updated successfully" });
+      } else {
+        return res.status(400).json({ message: "Nothing to update" });
       }
-      res.json({ message: "Rule updated successfully" });
-    });
+    };
+    if (Array.isArray(rules) && rules.length > 0) {
+      rules.forEach((rule) => {
+        if (
+          rule.id &&
+          rule.rule_name !== undefined &&
+          typeof rule.included === "boolean"
+        ) {
+          pending++;
+          const ruleUpdateQuery = `
+            UPDATE package_rules 
+            SET rule_name = ?, included = ? 
+            WHERE id = ?
+          `;
+          pool.query(
+            ruleUpdateQuery,
+            [rule.rule_name, rule.included ? 1 : 0, rule.id],
+            (err, result) => {
+              if (err) {
+                ruleErrors.push({ id: rule.id, error: err.message });
+              } else if (result.affectedRows === 0) {
+                ruleErrors.push({ id: rule.id, error: "Rule not found" });
+              } else {
+                ruleUpdated = true;
+              }
+              pending--;
+              sendFinalResponse();
+            }
+          );
+        }
+      });
+    }
+    if (packageNameId) {
+      const updateFields = [];
+      const updateValues = [];
+      if (name !== undefined) {
+        updateFields.push("name = ?");
+        updateValues.push(name);
+      }
+      if (price !== undefined) {
+        updateFields.push("price = ?");
+        updateValues.push(price);
+      }
+      if (duration_days !== undefined) {
+        updateFields.push("duration_days = ?");
+        updateValues.push(duration_days);
+      }
+      if (button_text !== undefined) {
+        updateFields.push("button_text = ?");
+        updateValues.push(button_text);
+      }
+      if (actual_amount !== undefined) {
+        updateFields.push("actual_amount = ?");
+        updateValues.push(actual_amount);
+      }
+      if (gst !== undefined) {
+        updateFields.push("gst = ?");
+        updateValues.push(gst);
+      }
+      if (sgst !== undefined) {
+        updateFields.push("sgst = ?");
+        updateValues.push(sgst);
+      }
+      if (gst_number !== undefined) {
+        updateFields.push("gst_number = ?");
+        updateValues.push(gst_number);
+      }
+      if (rera_number !== undefined) {
+        updateFields.push("rera_number = ?");
+        updateValues.push(rera_number);
+      }
+      if (gst_percentage !== undefined) {
+        updateFields.push("gst_percentage = ?");
+        updateValues.push(gst_percentage);
+      }
+      if (updateFields.length > 0) {
+        pending++;
+        const packageUpdateQuery = `
+          UPDATE packageNames 
+          SET ${updateFields.join(", ")} 
+          WHERE id = ?
+        `;
+        updateValues.push(packageNameId);
+        pool.query(packageUpdateQuery, updateValues, (pkgErr, pkgResult) => {
+          if (pkgErr) {
+            packageError = pkgErr.message;
+          } else if (pkgResult.affectedRows === 0) {
+            packageError = "Package not found";
+          } else {
+            packageUpdated = true;
+          }
+          pending--;
+          sendFinalResponse();
+        });
+      }
+    }
+    if ((!Array.isArray(rules) || rules.length === 0) && !packageNameId) {
+      return res.status(400).json({ message: "No valid update target found" });
+    }
+    setTimeout(() => {
+      if (pending === 0) sendFinalResponse();
+    }, 100);
   },
   deleteRule: (req, res) => {
     const { id } = req.query;
