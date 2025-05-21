@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
-
+const multer = require("multer");
+const upload = multer({ dest: "uploads/" });
 const mainController = require("../controllers/mainController");
 
 router.get("/getUsers", mainController.getAllUsers);
@@ -18,4 +19,10 @@ router.get("/getAllCities", mainController.getAllCities);
 router.post("/insertCareer", mainController.insertCareer);
 router.delete("/deleteCareer", mainController.deleteCareer);
 router.post("/updateCareer", mainController.updateCareer);
+router.post(
+  "/uploadPlacesExcell",
+  upload.single("file"),
+  mainController.insertPlacesExcell
+);
+
 module.exports = router;

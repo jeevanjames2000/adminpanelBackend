@@ -1,5 +1,7 @@
 const pool = require("../config/db");
 const moment = require("moment");
+const xlsx = require("xlsx");
+const fs = require("fs");
 module.exports = {
   getAllUsers: async (req, res) => {
     const userTypes = [2, 3, 4, 5, 6];
@@ -204,32 +206,25 @@ module.exports = {
     const search = req.query.search || "";
     const stateFilter = req.query.state || "";
     const cityFilter = req.query.city || "";
-
     const limit = 10;
     const offset = (page - 1) * limit;
-
     const conditions = [];
     const params = [];
-
     if (search) {
       conditions.push("(state LIKE ? OR city LIKE ? OR locality LIKE ?)");
       const searchQuery = `%${search}%`;
       params.push(searchQuery, searchQuery, searchQuery);
     }
-
     if (stateFilter) {
       conditions.push("state = ?");
       params.push(stateFilter);
     }
-
     if (cityFilter) {
       conditions.push("city = ?");
       params.push(cityFilter);
     }
-
     const whereClause =
       conditions.length > 0 ? `WHERE ${conditions.join(" AND ")}` : "";
-
     const countSql = `
       SELECT COUNT(*) AS total FROM (
         SELECT DISTINCT id, state, city, locality, status
@@ -237,15 +232,12 @@ module.exports = {
         ${whereClause}
       ) AS distinct_places
     `;
-
     pool.query(countSql, params, (err, countResult) => {
       if (err) {
         console.error("Error counting places", err);
         return res.status(500).json({ error: "Something went wrong" });
       }
-
       const total = countResult[0].total;
-
       const dataSql = `
         SELECT DISTINCT id, state, city, locality, status
         FROM city_localities
@@ -253,15 +245,12 @@ module.exports = {
         ORDER BY id DESC
         LIMIT ? OFFSET ?
       `;
-
       const dataParams = [...params, limit, offset];
-
       pool.query(dataSql, dataParams, (err, results) => {
         if (err) {
           console.error("Error fetching places", err);
           return res.status(500).json({ error: "Something went wrong" });
         }
-
         res.status(200).json({
           page,
           perPage: limit,
@@ -284,16 +273,23 @@ module.exports = {
     });
   },
   getAllCities: (req, res) => {
-    pool.query(
-      "SELECT DISTINCT city,state,status FROM city_localities",
-      (err, results) => {
-        if (err) {
-          console.error("Error fetching city_localities:", err);
-          return res.status(500).json({ error: "Database query failed" });
-        }
-        res.status(200).json(results);
+    const { state } = req.query;
+
+    let query = "SELECT DISTINCT city, state, status FROM city_localities";
+    let params = [];
+
+    if (state) {
+      query += " WHERE state = ?";
+      params.push(state);
+    }
+
+    pool.query(query, params, (err, results) => {
+      if (err) {
+        console.error("Error fetching city_localities:", err);
+        return res.status(500).json({ error: "Database query failed" });
       }
-    );
+      res.status(200).json(results);
+    });
   },
   deletePlace: (req, res) => {
     const { state, city, locality } = req.body;
@@ -329,7 +325,6 @@ module.exports = {
       newLocality,
       status,
     } = req.body;
-
     if (
       !oldState ||
       !oldCity ||
@@ -342,13 +337,11 @@ module.exports = {
         .status(400)
         .json({ error: "Old and new State, City, and Locality are required" });
     }
-
     const updateSql = `
       UPDATE city_localities 
       SET state = ?, city = ?, locality = ?, status = ?
       WHERE state = ? AND city = ? AND locality = ?
     `;
-
     pool.query(
       updateSql,
       [newState, newCity, newLocality, status, oldState, oldCity, oldLocality],
@@ -357,22 +350,18 @@ module.exports = {
           console.error("Error updating place:", err);
           return res.status(500).json({ error: "Something went wrong" });
         }
-
         console.log("SQL Result:", result);
-
         if (result.affectedRows === 0) {
           return res
             .status(404)
             .json({ message: "No matching place found to update" });
         }
-
         return res.status(200).json({
           message: `Updated ${result.affectedRows} record(s) successfully`,
         });
       }
     );
   },
-
   insertPlace: (req, res) => {
     const { state, city, locality, status } = req.body;
     if (!state || !city || !locality) {
@@ -391,5 +380,53 @@ module.exports = {
       }
       res.status(201).json({ message: "Place added successfully" });
     });
+  },
+  insertPlacesExcell: (req, res) => {
+    if (!req.file) {
+      return res.status(400).json({ error: "Excel file is required" });
+    }
+    const filePath = req.file.path;
+    try {
+      const workbook = xlsx.readFile(filePath);
+      const sheetName = workbook.SheetNames[0];
+      const jsonData = xlsx.utils.sheet_to_json(workbook.Sheets[sheetName]);
+      const insertData = [];
+      const errors = [];
+      jsonData.forEach((row, index) => {
+        const { state, city, locality, status } = row;
+        if (!state || !city || !locality) {
+          errors.push(`Row ${index + 2} is missing required fields`);
+          return;
+        }
+        insertData.push([
+          state.trim(),
+          city.trim(),
+          locality.trim(),
+          status !== undefined ? status : "inactive",
+        ]);
+      });
+      fs.unlink(filePath, () => {});
+      if (insertData.length === 0) {
+        return res.status(400).json({ error: "No valid data found", errors });
+      }
+      const insertSql = `
+        INSERT INTO city_localities (state, city, locality, status)
+        VALUES ?
+      `;
+      pool.query(insertSql, [insertData], (err, result) => {
+        if (err) {
+          console.error("Insert error:", err);
+          return res.status(500).json({ error: "Database insert failed" });
+        }
+        return res.status(201).json({
+          message: `${result.affectedRows} places inserted successfully`,
+          errors,
+        });
+      });
+    } catch (error) {
+      fs.unlink(filePath, () => {});
+      console.error("Excel parse error:", error);
+      return res.status(500).json({ error: "Failed to process Excel file" });
+    }
   },
 };
