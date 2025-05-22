@@ -25,18 +25,36 @@ module.exports = {
   },
   searchLocalities: (req, res) => {
     const { city, query } = req.query;
-    if (!city || !query) {
-      return res
-        .status(400)
-        .json({ error: "City and search query are required" });
+
+    if (!city) {
+      return res.status(400).json({ error: "City is required" });
     }
-    const searchTerm = `${query.toLowerCase()}%`;
-    const sql = `
-    SELECT DISTINCT  locality FROM city_localities 
-    WHERE LOWER(city) = LOWER(?) AND LOWER(locality) LIKE ?
-    ORDER BY CHAR_LENGTH(locality)
-  `;
-    pool.query(sql, [city, searchTerm], (err, results) => {
+
+    let sql = "";
+    let params = [];
+
+    if (!query) {
+      // Return top 10 localities for the city by default
+      sql = `
+        SELECT DISTINCT locality FROM city_localities 
+        WHERE LOWER(city) = LOWER(?) AND status = 'active'
+        ORDER BY locality 
+        LIMIT 10
+      `;
+      params = [city];
+    } else {
+      const searchTerm = `${query.toLowerCase()}%`;
+      sql = `
+        SELECT DISTINCT locality FROM city_localities 
+        WHERE LOWER(city) = LOWER(?) 
+          AND LOWER(locality) LIKE ?
+          AND status = 'active'
+        ORDER BY CHAR_LENGTH(locality)
+      `;
+      params = [city, searchTerm];
+    }
+
+    pool.query(sql, params, (err, results) => {
       if (err) {
         console.error("Database error:", err);
         return res.status(500).json({ error: "Query failed" });
@@ -44,6 +62,7 @@ module.exports = {
       res.status(200).json(results);
     });
   },
+
   getTermsAndConditions: (req, res) => {
     pool.query("SELECT * FROM company_terms", (err, results) => {
       if (err) {
@@ -263,7 +282,8 @@ module.exports = {
     });
   },
   getAllStates: (req, res) => {
-    const query = "SELECT DISTINCT state, status FROM city_localities";
+    const query =
+      "SELECT DISTINCT state, status FROM city_localities WHERE status = 'active'";
     pool.query(query, (err, results) => {
       if (err) {
         console.error("Error fetching city_localities:", err);
@@ -275,11 +295,12 @@ module.exports = {
   getAllCities: (req, res) => {
     const { state } = req.query;
 
-    let query = "SELECT DISTINCT city, state, status FROM city_localities";
+    let query =
+      "SELECT DISTINCT city, state, status FROM city_localities WHERE status = 'active'";
     let params = [];
 
     if (state) {
-      query += " WHERE state = ?";
+      query += " AND state = ?";
       params.push(state);
     }
 
@@ -291,6 +312,7 @@ module.exports = {
       res.status(200).json(results);
     });
   },
+
   deletePlace: (req, res) => {
     const { state, city, locality } = req.body;
     if (!state || !city || !locality) {
