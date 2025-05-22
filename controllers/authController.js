@@ -1,9 +1,9 @@
 const pool = require("../config/db");
-
 const jwt = require("jsonwebtoken");
 const JWT_SECRET = "khsfskhfks983493123!@#JSFKORuiweo232";
 const bcrypt = require("bcrypt");
 const { default: axios } = require("axios");
+const moment = require("moment");
 module.exports = {
   login: async (req, res) => {
     try {
@@ -49,9 +49,7 @@ module.exports = {
         .status(400)
         .json({ message: "Mobile and password are required" });
     }
-
     const query = `SELECT * FROM users WHERE mobile = ? AND user_type != 2`;
-
     pool.query(query, [mobile], async (err, results) => {
       if (err) {
         console.error("Database error during login:", err);
@@ -60,13 +58,11 @@ module.exports = {
       if (results.length === 0) {
         return res.status(401).json({ message: "Invalid mobile or password" });
       }
-
       const user = results[0];
       console.log("user: ", user);
       if (!user.password) {
         return res.status(500).json({ message: "Password not found for user" });
       }
-
       try {
         const isPasswordValid = await bcrypt.compare(password, user.password);
         if (!isPasswordValid) {
@@ -156,7 +152,6 @@ module.exports = {
   sendGallaboxOTP: async (req, res) => {
     const { mobile } = req.body;
     const generatedOtp = Math.floor(1000 + Math.random() * 9000);
-
     try {
       const response = await axios.post(
         "https://server.gallabox.com/devapi/messages/whatsapp",
@@ -180,7 +175,6 @@ module.exports = {
           },
         }
       );
-
       res.json({ success: true, data: response.data, otp: generatedOtp });
     } catch (err) {
       console.error("Gallabox OTP error:", err.response?.data || err.message);
@@ -198,7 +192,6 @@ module.exports = {
       google_address,
       sub_type,
     } = req.body;
-
     console.log(
       name,
       mobile,
@@ -229,20 +222,17 @@ module.exports = {
         },
       },
     };
-
     const headers = {
       apiKey: "67e3a37bfa6fbc8b1aa2edcf",
       apiSecret: "a9fe1160c20f491eb00389683b29ec6b",
       "Content-Type": "application/json",
     };
-
     try {
       const response = await axios.post(
         "https://server.gallabox.com/devapi/messages/whatsapp",
         payload,
         { headers }
       );
-
       if (response.status === 202) {
         return res.status(200).json({ message: "WhatsApp message sent!" });
       }
@@ -261,17 +251,14 @@ module.exports = {
       );
       console.log("result: ", result);
       const rows = result[0];
-
       if (rows.length === 0) {
         return res.status(404).json({
           status: "error_user_not_found",
           message: "User not found",
         });
       }
-
       const user = rows[0];
       const user_id = user.id.toString();
-
       const accessToken = jwt.sign({ user_id }, process.env.JWT_SECRET, {
         expiresIn: "7d",
       });
@@ -279,7 +266,6 @@ module.exports = {
         user_id,
         ...user,
       };
-
       return res.status(200).json({
         status: "success",
         message: "Login successful",
@@ -295,75 +281,85 @@ module.exports = {
     }
   },
   AuthRegisterNew: async (req, res) => {
-    const { userType, name, mobile, city } = req.body;
+    const {
+      userType,
+      name,
+      mobile,
+      city,
+      email,
+      gst_number,
+      rera_number,
+      company_name,
+    } = req.body;
     try {
-      const userTypeResult = await pool.execute(
-        "SELECT * FROM user_types WHERE login_type = ?",
-        [userType]
-      );
-      const userTypeRows = userTypeResult[0];
-      const userTypeData = userTypeRows[0];
-
-      if (!userTypeData) {
+      const [userTypeRows] = await pool
+        .promise()
+        .query(
+          "SELECT login_type_id FROM user_types WHERE login_type = ? LIMIT 1",
+          [userType]
+        );
+      if (userTypeRows.length === 0) {
         return res.status(400).json({
           status: "error_invalid_user_type",
           message: "Invalid user type provided",
         });
       }
-
-      const user_type_id = userTypeData.login_type_id;
-
-      const cityResult = await pool.execute(
-        "SELECT * FROM cities WHERE id = ?",
-        [city]
-      );
-      const cityRows = cityResult[0];
-      const cityData = cityRows[0];
-
-      if (!cityData) {
+      const user_type_id = userTypeRows[0].login_type_id;
+      const [cityRows] = await pool
+        .promise()
+        .query("SELECT name FROM cities WHERE id = ? LIMIT 1", [city]);
+      if (cityRows.length === 0) {
         return res.status(404).json({
           status: "error_city_not_found",
           message: "City not found",
         });
       }
-
-      const existingUserResult = await pool.execute(
-        "SELECT * FROM users WHERE mobile = ?",
-        [mobile]
-      );
-      const existingUserRows = existingUserResult[0];
-      const existingUser = existingUserRows[0];
-
-      if (existingUser) {
+      const city_name = cityRows[0].name;
+      const [existingUserRows] = await pool
+        .promise()
+        .query("SELECT id FROM users WHERE mobile = ? LIMIT 1", [mobile]);
+      if (existingUserRows.length > 0) {
         return res.status(409).json({
           status: "error_user_exists",
           message: "User already exists",
         });
       }
-
-      const created_date = new Date();
-      const created_time = new Date();
-
-      const insertResult = await pool.execute(
-        "INSERT INTO users (user_type, name, mobile, city, created_date, created_time) VALUES (?, ?, ?, ?, ?, ?)",
-        [user_type_id, name, mobile, cityData.name, created_date, created_time]
+      const created_date = moment().format("YYYY-MM-DD");
+      const created_time = moment().format("HH:mm:ss");
+      const insertUserQuery = `
+        INSERT INTO users 
+        (user_type, name, mobile, city, email, created_date, created_time,gst_number,rera_number,company_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?,? ,?,?)
+      `;
+      const [insertResult] = await pool
+        .promise()
+        .query(insertUserQuery, [
+          user_type_id,
+          name,
+          mobile,
+          city_name,
+          email,
+          created_date,
+          created_time,
+          gst_number,
+          rera_number,
+          company_name,
+        ]);
+      const user_id = insertResult.insertId.toString();
+      const accessToken = jwt.sign(
+        { user_id: user_id },
+        process.env.JWT_SECRET,
+        {
+          expiresIn: "7d",
+        }
       );
-
-      console.log("insertResult: ", insertResult);
-      const insertInfo = insertResult[0];
-      const user_id = insertInfo.insertId.toString();
-
-      const accessToken = jwt.sign({ user_id }, process.env.JWT_SECRET, {
-        expiresIn: "7d",
-      });
-
       const user_details = {
-        user_id,
+        user_id: user_id,
         user_type: user_type_id,
-        name,
-        mobile,
+        name: name,
+        mobile: mobile,
+        email: email,
       };
-
       return res.status(201).json({
         status: "success",
         message: "User created successfully",
@@ -371,7 +367,7 @@ module.exports = {
         accessToken,
       });
     } catch (error) {
-      console.error("Register Error:", error);
+      console.error("Error in AuthRegisterNew:", error);
       return res.status(500).json({
         status: "error",
         message: "Internal server error",

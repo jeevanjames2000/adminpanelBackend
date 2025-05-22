@@ -529,4 +529,322 @@ module.exports = {
       res.json({ message: "Rule deleted successfully" });
     });
   },
+  insertCustomPackageWithRules: (req, res) => {
+    const {
+      user_id,
+      name,
+      price,
+      duration_days,
+      button_text,
+      actual_amount,
+      gst,
+      sgst,
+      gst_percentage,
+      gst_number,
+      rera_number,
+      package_for,
+      rules,
+      created_by,
+      city,
+    } = req.body;
+
+    if (
+      !name ||
+      !price ||
+      !duration_days ||
+      !package_for ||
+      !Array.isArray(rules) ||
+      !created_by ||
+      !city ||
+      rules.length === 0
+    ) {
+      return res.status(400).json({
+        message:
+          "name, price, duration_days, package_for, and rules are required",
+      });
+    }
+
+    const created_date = moment().format("YYYY-MM-DD HH:mm:ss");
+
+    const insertPackageQuery = `
+      INSERT INTO packageNames 
+      (user_id, name, price, duration_days, button_text, actual_amount, gst, sgst, gst_percentage, gst_number, rera_number, package_for, created_by, created_date, city) 
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    const packageValues = [
+      user_id,
+      name,
+      price,
+      duration_days,
+      button_text || "",
+      actual_amount || 0,
+      gst || 0,
+      sgst || 0,
+      gst_percentage || 0,
+      gst_number || "",
+      rera_number || "",
+      package_for,
+      created_by,
+      created_date,
+      city,
+    ];
+
+    pool.query(insertPackageQuery, packageValues, (pkgErr, pkgResult) => {
+      if (pkgErr) {
+        return res.status(500).json({
+          message: "Error inserting package",
+          error: pkgErr.message,
+        });
+      }
+
+      const package_id = pkgResult.insertId;
+
+      const ruleValues = rules.map((rule) => [
+        user_id,
+        package_id,
+        rule.name,
+        rule.included ? 1 : 0,
+        package_for,
+        created_by,
+        created_date,
+        city,
+      ]);
+
+      const insertRulesQuery = `
+        INSERT INTO package_rules 
+        (user_id, package_id, rule_name, included, package_for, created_by, created_date,city)
+        VALUES ?
+      `;
+
+      pool.query(insertRulesQuery, [ruleValues], (ruleErr) => {
+        if (ruleErr) {
+          return res.status(500).json({
+            message: "Package inserted, but error inserting rules",
+            error: ruleErr.message,
+          });
+        }
+
+        res.json({
+          message: "Package and rules inserted successfully",
+          package_id,
+        });
+      });
+    });
+  },
+  getCustomPackages: (req, res) => {
+    const { user_id } = req.query;
+    let query = `
+      SELECT 
+        pn.id as package_id,
+        pn.user_id,
+        pn.name,
+        pn.price,
+        pn.duration_days,
+        pn.button_text,
+        pn.actual_amount,
+        pn.gst,
+        pn.sgst,
+        pn.gst_percentage,
+        pn.gst_number,
+        pn.rera_number,
+        pn.package_for,
+        pr.id as rule_id,
+        pr.rule_name,
+        pr.included
+      FROM packageNames pn
+      LEFT JOIN package_rules pr ON pn.id = pr.package_id
+    `;
+    const queryParams = [];
+    if (user_id) {
+      query += ` WHERE pn.user_id = ?`;
+      queryParams.push(user_id);
+    }
+    pool.query(query, queryParams, (err, results) => {
+      if (err) {
+        return res.status(500).json({
+          message: "Failed to fetch custom packages",
+          error: err.message,
+        });
+      }
+      const packagesMap = {};
+      results.forEach((row) => {
+        if (!packagesMap[row.package_id]) {
+          packagesMap[row.package_id] = {
+            package_id: row.package_id,
+            user_id: row.user_id,
+            name: row.name,
+            price: row.price,
+            duration_days: row.duration_days,
+            button_text: row.button_text,
+            actual_amount: row.actual_amount,
+            gst: row.gst,
+            sgst: row.sgst,
+            gst_percentage: row.gst_percentage,
+            gst_number: row.gst_number,
+            rera_number: row.rera_number,
+            package_for: row.package_for,
+            rules: [],
+          };
+        }
+        if (row.rule_id) {
+          packagesMap[row.package_id].rules.push({
+            id: row.rule_id,
+            rule_name: row.rule_name,
+            included: !!row.included,
+          });
+        }
+      });
+      const customPackages = Object.values(packagesMap);
+      res.json({ customPackages });
+    });
+  },
+  getAllCustomPackages: (req, res) => {
+    const query = `
+      SELECT 
+        pn.id as package_id,
+        pn.user_id,
+        u.name as user_name,
+        u.mobile as user_mobile,
+        u.user_type,
+        pn.name,
+        pn.price,
+        pn.duration_days,
+        pn.button_text,
+        pn.actual_amount,
+        pn.gst,
+        pn.sgst,
+        pn.gst_percentage,
+        pn.gst_number,
+        pn.rera_number,
+        pn.package_for,
+        pn.created_by,
+        pn.created_date,
+        pn.city,
+        pr.id as rule_id,
+        pr.rule_name,
+        pr.included,
+        pr.created_by,
+        pr.created_date,
+        pr.city
+      FROM packageNames pn
+      LEFT JOIN package_rules pr ON pn.id = pr.package_id
+      LEFT JOIN users u ON pn.user_id = u.id
+      WHERE pn.name = 'Custom'
+    `;
+
+    pool.query(query, (err, results) => {
+      if (err) {
+        return res.status(500).json({
+          message: "Failed to fetch custom packages",
+          error: err.message,
+        });
+      }
+
+      const packagesMap = {};
+
+      results.forEach((row) => {
+        if (!packagesMap[row.package_id]) {
+          packagesMap[row.package_id] = {
+            package_id: row.package_id,
+            user_id: row.user_id,
+            user_name: row.user_name,
+            user_mobile: row.user_mobile,
+            user_type: row.user_type,
+            name: row.name,
+            price: row.price,
+            duration_days: row.duration_days,
+            button_text: row.button_text,
+            actual_amount: row.actual_amount,
+            gst: row.gst,
+            sgst: row.sgst,
+            gst_percentage: row.gst_percentage,
+            gst_number: row.gst_number,
+            rera_number: row.rera_number,
+            package_for: row.package_for,
+            created_by: row.created_by,
+            created_date: row.created_date,
+            city: row.city,
+            rules: [],
+          };
+        }
+
+        if (row.rule_id) {
+          packagesMap[row.package_id].rules.push({
+            id: row.rule_id,
+            rule_name: row.rule_name,
+            included: !!row.included,
+            created_by: row.created_by,
+            created_date: row.created_date,
+            city: row.city,
+          });
+        }
+      });
+
+      const customPackages = Object.values(packagesMap);
+      res.json({ customPackages });
+    });
+  },
+  getPackagePrice: async (req, res) => {
+    const { package_for, packageName, city } = req.query;
+
+    if (!packageName || !city) {
+      return res.status(400).json({
+        message: "packageName and city query parameters are required",
+      });
+    }
+
+    try {
+      const query = `
+        SELECT 
+          p.id AS package_id,
+          p.name,
+          p.duration_days,
+          COALESCE(pcp.price, p.price) AS price,
+          COALESCE(pcp.price, p.price) / (1 + p.gst_percentage / 100) AS actual_amount,
+          (COALESCE(pcp.price, p.price) / (1 + p.gst_percentage / 100)) * (p.gst_percentage / 100) AS gst,
+          (COALESCE(pcp.price, p.price) / (1 + p.gst_percentage / 100)) * (p.gst_percentage / 200) AS sgst,
+          p.gst_percentage,
+          p.gst_number,
+          p.rera_number,
+          p.package_for
+        FROM packageNames p
+        LEFT JOIN package_city_pricing pcp ON p.id = pcp.package_id AND pcp.city = ?
+        WHERE p.name = ? ${package_for ? "AND p.package_for = ?" : ""}
+        LIMIT 1;
+      `;
+
+      const params = package_for
+        ? [city, packageName, package_for]
+        : [city, packageName];
+
+      const [rows] = await pool.promise().execute(query, params);
+
+      if (rows.length === 0) {
+        return res.status(404).json({ message: "Package not found" });
+      }
+
+      const pkg = rows[0];
+      const response = {
+        id: String(pkg.package_id),
+        name: pkg.name,
+        duration_days: pkg.duration_days,
+        price: parseFloat(pkg.price).toFixed(2),
+        actual_amount: parseFloat(pkg.actual_amount).toFixed(2),
+        gst: parseFloat(pkg.gst).toFixed(2),
+        sgst: parseFloat(pkg.sgst).toFixed(2),
+        gst_percentage: parseFloat(pkg.gst_percentage).toFixed(2),
+        gst_number: pkg.gst_number,
+        rera_number: pkg.rera_number,
+        package_for: pkg.package_for,
+      };
+
+      return res.json(response);
+    } catch (err) {
+      console.error("Error fetching package price:", err);
+      return res.status(500).json({
+        message: "Internal server error",
+        error: err.message,
+      });
+    }
+  },
 };

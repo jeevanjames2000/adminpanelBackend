@@ -630,15 +630,22 @@ module.exports = {
           message: "Invalid subscription package",
         });
       }
-      const {
-        duration_days,
-        actual_amount,
-        gst,
-        sgst,
-        gst_percentage,
-        gst_number,
-        rera_number,
-      } = packageResults[0];
+      const { duration_days, actual_amount, gst, sgst, gst_percentage } =
+        packageResults[0];
+      const [userDetailsRows] = await pool
+        .promise()
+        .execute(
+          `SELECT gst_number, rera_number FROM users WHERE id = ? LIMIT 1`,
+          [user_id]
+        );
+
+      let gst_number = null;
+      let rera_number = null;
+
+      if (userDetailsRows.length > 0) {
+        gst_number = userDetailsRows[0].gst_number || "N/A";
+        rera_number = userDetailsRows[0].rera_number || "N/A";
+      }
       if (finalPaymentStatus === "processing") {
         subscription_expiry_date = moment()
           .add(duration_days, "days")
@@ -1165,7 +1172,7 @@ module.exports = {
       }
 
       const [packageResults] = await pool.promise().execute(
-        `SELECT duration_days, actual_amount, gst, sgst, gst_percentage, gst_number, rera_number 
+        `SELECT duration_days, actual_amount, gst, sgst, gst_percentage
          FROM packageNames 
          WHERE name = ? LIMIT 1`,
         [subscription_package]
@@ -1177,15 +1184,22 @@ module.exports = {
         });
       }
 
-      const {
-        duration_days,
-        actual_amount,
-        gst,
-        sgst,
-        gst_percentage,
-        gst_number,
-        rera_number,
-      } = packageResults[0];
+      const { duration_days, actual_amount, gst, sgst, gst_percentage } =
+        packageResults[0];
+      const [userDetailsRows] = await pool
+        .promise()
+        .execute(
+          `SELECT gst_number, rera_number FROM users WHERE id = ? LIMIT 1`,
+          [user_id]
+        );
+
+      let gst_number = null;
+      let rera_number = null;
+
+      if (userDetailsRows.length > 0) {
+        gst_number = userDetailsRows[0].gst_number || "N/A";
+        rera_number = userDetailsRows[0].rera_number || "N/A";
+      }
 
       let subscription_start_date = moment().format("YYYY-MM-DD HH:mm:ss");
       let subscription_expiry_date = subscription_start_date;
