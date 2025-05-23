@@ -45,6 +45,20 @@ module.exports = {
       }
     );
   },
+  getAllEmployeeCount: async (req, res) => {
+    pool.query(
+      `SELECT user_type, COUNT(*) as count FROM employees GROUP BY user_type
+       UNION ALL
+       SELECT 'Total' as user_type, COUNT(*) as count FROM employees`,
+      (err, results) => {
+        if (err) {
+          console.error("Error fetching user counts:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        res.status(200).json(results);
+      }
+    );
+  },
   getAllUsersByType: (req, res) => {
     const { user_type, name, search } = req.query;
     let sql = "SELECT * FROM users";

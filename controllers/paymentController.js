@@ -6,6 +6,7 @@ const { default: axios } = require("axios");
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
+
 const sendWhatsappLeads = async (name, mobile) => {
   const payload = {
     channelId: "67a9e14542596631a8cfc87b",
@@ -23,22 +24,22 @@ const sendWhatsappLeads = async (name, mobile) => {
       },
     },
   };
-
   const headers = {
     apiKey: "67e3a37bfa6fbc8b1aa2edcf",
     apiSecret: "a9fe1160c20f491eb00389683b29ec6b",
     "Content-Type": "application/json",
   };
-
   try {
     const response = await axios.post(
       "https://server.gallabox.com/devapi/messages/whatsapp",
       payload,
       { headers }
     );
-
     response.status === 202;
-  } catch (error) {}
+    console.log("response: ", response);
+  } catch (error) {
+    console.log("error: ", error);
+  }
 };
 
 const sendInvoice = async (name, mobile, amount, invoiceUrl) => {
@@ -553,6 +554,7 @@ module.exports = {
       Basic: "basic",
       Prime: "prime",
       "Prime Plus": "prime_plus",
+      Custom: "custom",
     };
     const mappedPackageName = packageEnumMap[subscription_package];
     if (!mappedPackageName) {
@@ -638,10 +640,8 @@ module.exports = {
           `SELECT gst_number, rera_number FROM users WHERE id = ? LIMIT 1`,
           [user_id]
         );
-
       let gst_number = null;
       let rera_number = null;
-
       if (userDetailsRows.length > 0) {
         gst_number = userDetailsRows[0].gst_number || "N/A";
         rera_number = userDetailsRows[0].rera_number || "N/A";
@@ -920,7 +920,6 @@ module.exports = {
       return res.status(500).json({ success: false, message: "Server error" });
     }
   },
-
   updateSubscription: async (req, res) => {
     const user_id = req.body.user_id || req.query.user_id;
     const subscription_status = req.body.subscription_status;
@@ -971,7 +970,6 @@ module.exports = {
           subscription_status,
           user_id,
         ]);
-
       if (name && mobile && invoice_url) {
         await sendInvoice(name, mobile, payment_amount, invoice_url);
         await sendWhatsappLeads(name, mobile);
@@ -1128,7 +1126,6 @@ module.exports = {
       razorpay_signature,
       payment_status,
     } = req.body;
-
     if (
       !user_id ||
       !subscription_package ||
@@ -1141,7 +1138,6 @@ module.exports = {
           "Missing required fields: user_id, subscription_package, payment_status, or razorpay_payment_id",
       });
     }
-
     const packageEnumMap = {
       "Free Listing": "free",
       Basic: "basic",
@@ -1156,7 +1152,6 @@ module.exports = {
         message: "Invalid subscription package format",
       });
     }
-
     try {
       const [existingPayments] = await pool
         .promise()
@@ -1170,7 +1165,6 @@ module.exports = {
           message: "Payment already processed",
         });
       }
-
       const [packageResults] = await pool.promise().execute(
         `SELECT duration_days, actual_amount, gst, sgst, gst_percentage
          FROM packageNames 
@@ -1183,7 +1177,6 @@ module.exports = {
           message: "Invalid subscription package",
         });
       }
-
       const { duration_days, actual_amount, gst, sgst, gst_percentage } =
         packageResults[0];
       const [userDetailsRows] = await pool
@@ -1192,20 +1185,16 @@ module.exports = {
           `SELECT gst_number, rera_number FROM users WHERE id = ? LIMIT 1`,
           [user_id]
         );
-
       let gst_number = null;
       let rera_number = null;
-
       if (userDetailsRows.length > 0) {
         gst_number = userDetailsRows[0].gst_number || "N/A";
         rera_number = userDetailsRows[0].rera_number || "N/A";
       }
-
       let subscription_start_date = moment().format("YYYY-MM-DD HH:mm:ss");
       let subscription_expiry_date = subscription_start_date;
       let subscription_status = "processing";
       let finalPaymentStatus = payment_status;
-
       if (payment_status === "cancelled" || payment_status === "failed") {
         finalPaymentStatus = payment_status;
         subscription_status = "inactive";
@@ -1216,10 +1205,8 @@ module.exports = {
           .format("YYYY-MM-DD HH:mm:ss");
         finalPaymentStatus = "processing";
       }
-
       let invoice_number = null;
       let invoice_url = null;
-
       await pool.promise().query("START TRANSACTION");
       try {
         if (finalPaymentStatus === "processing") {
@@ -1235,7 +1222,6 @@ module.exports = {
           }
           invoice_number = `INV-${String(nextNumber).padStart(5, "0")}`;
         }
-
         await pool.promise().execute(
           `UPDATE users 
            SET subscription_package = ?, 
@@ -1251,7 +1237,6 @@ module.exports = {
             user_id,
           ]
         );
-
         if (finalPaymentStatus === "processing" && invoice_number) {
           const subscriptionData = {
             id: user_id,
@@ -1288,7 +1273,6 @@ module.exports = {
             ]
           );
         }
-
         await pool.promise().execute(
           `INSERT INTO payment_details (
             user_id, user_type, city, name, mobile, email,
@@ -1328,13 +1312,10 @@ module.exports = {
             invoice_url || null,
           ]
         );
-
         await pool.promise().query("COMMIT");
-
         if (invoice_url) {
           await sendInvoice(name, mobile, payment_amount, invoice_url);
         }
-
         return res.json({
           success: finalPaymentStatus === "processing",
           message:
@@ -1360,7 +1341,6 @@ module.exports = {
       });
     }
   },
-
   getPaymentDetailsByID: (req, res) => {
     const { invoice_number } = req.query;
     if (!invoice_number) {
@@ -1538,7 +1518,6 @@ module.exports = {
         AND u.subscription_expiry_date > NOW()
         AND u.subscription_expiry_date <= DATE_ADD(NOW(), INTERVAL 7 DAY)
     `;
-
     pool.query(query, (err, results) => {
       if (err) {
         console.error("DB Query Error:", err);
@@ -1547,7 +1526,6 @@ module.exports = {
           message: "Failed to fetch expiring subscriptions",
         });
       }
-
       if (!results || results.length === 0) {
         return res.status(200).json({
           success: true,
@@ -1556,7 +1534,6 @@ module.exports = {
           users: [],
         });
       }
-
       const users = results.map((user) => {
         const expiryFormatted = moment(user.subscription_expiry_date).format(
           "DD MMMM YYYY [at] hh:mm A"
@@ -1566,7 +1543,6 @@ module.exports = {
           message: `Subscription will expire on ${expiryFormatted}`,
         };
       });
-
       return res.status(200).json({
         success: true,
         expiringSoon: true,

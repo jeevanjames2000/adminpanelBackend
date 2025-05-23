@@ -11,6 +11,7 @@ const upload = multer({
 const userController = require("../controllers/usersController");
 
 router.get("/getAllUsersCount", userController.getAllUsersCount);
+router.get("/getAllEmployeeCount", userController.getAllEmployeeCount);
 router.get("/getAllUsersByType", userController.getAllUsersByType);
 router.get("/getAllUsersByTypeSearch", userController.getAllUsersByTypeSearch);
 router.get(
