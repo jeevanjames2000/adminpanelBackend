@@ -632,7 +632,7 @@ module.exports = {
     });
   },
   getCustomPackages: (req, res) => {
-    const { user_id } = req.query;
+    const { user_id, city } = req.query;
     let query = `
       SELECT 
         pn.id as package_id,
@@ -648,6 +648,7 @@ module.exports = {
         pn.gst_number,
         pn.rera_number,
         pn.package_for,
+        pn.city,
         pr.id as rule_id,
         pr.rule_name,
         pr.included
@@ -655,10 +656,22 @@ module.exports = {
       LEFT JOIN package_rules pr ON pn.id = pr.package_id
     `;
     const queryParams = [];
+    const conditions = [];
+
     if (user_id) {
-      query += ` WHERE pn.user_id = ?`;
+      conditions.push("pn.user_id = ?");
       queryParams.push(user_id);
     }
+
+    if (city) {
+      conditions.push("pn.city = ?");
+      queryParams.push(city);
+    }
+
+    if (conditions.length) {
+      query += " WHERE " + conditions.join(" AND ");
+    }
+
     pool.query(query, queryParams, (err, results) => {
       if (err) {
         return res.status(500).json({
@@ -683,6 +696,7 @@ module.exports = {
             gst_number: row.gst_number,
             rera_number: row.rera_number,
             package_for: row.package_for,
+            city: row.city,
             rules: [],
           };
         }
@@ -699,7 +713,9 @@ module.exports = {
     });
   },
   getAllCustomPackages: (req, res) => {
-    const query = `
+    const { city } = req.query;
+
+    let query = `
       SELECT 
         pn.id as package_id,
         pn.user_id,
@@ -725,14 +741,21 @@ module.exports = {
         pr.included,
         pr.created_by,
         pr.created_date,
-        pr.city
+        pr.city as rule_city
       FROM packageNames pn
       LEFT JOIN package_rules pr ON pn.id = pr.package_id
       LEFT JOIN users u ON pn.user_id = u.id
       WHERE pn.name = 'Custom'
     `;
 
-    pool.query(query, (err, results) => {
+    const queryParams = [];
+
+    if (city) {
+      query += ` AND pn.city = ?`;
+      queryParams.push(city);
+    }
+
+    pool.query(query, queryParams, (err, results) => {
       if (err) {
         return res.status(500).json({
           message: "Failed to fetch custom packages",
@@ -741,7 +764,6 @@ module.exports = {
       }
 
       const packagesMap = {};
-
       results.forEach((row) => {
         if (!packagesMap[row.package_id]) {
           packagesMap[row.package_id] = {
@@ -775,7 +797,7 @@ module.exports = {
             included: !!row.included,
             created_by: row.created_by,
             created_date: row.created_date,
-            city: row.city,
+            city: row.rule_city,
           });
         }
       });

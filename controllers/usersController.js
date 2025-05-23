@@ -219,12 +219,14 @@ module.exports = {
       });
     });
   },
+
   getAllEmployeesByTypeSearch: (req, res) => {
     const { user_type, id, search } = req.query;
     let sql = "SELECT * FROM employees";
     let countSql = "SELECT COUNT(*) AS count FROM employees";
     let whereClauses = [];
     let values = [];
+
     if (user_type) {
       whereClauses.push("user_type = ?");
       values.push(user_type);
@@ -237,47 +239,95 @@ module.exports = {
       whereClauses.push("(name LIKE ? OR mobile LIKE ?)");
       values.push(`%${search}%`, `%${search}%`);
     }
+
     if (whereClauses.length > 0) {
       const whereStr = " WHERE " + whereClauses.join(" AND ");
       sql += whereStr;
       countSql += whereStr;
     }
+
     pool.query(countSql, values, (err, countResult) => {
       if (err) return res.status(500).json({ error: "Database query failed" });
       const userCount = countResult[0].count;
+
       pool.query(sql, values, async (err, employees) => {
         if (err)
           return res.status(500).json({ error: "Database query failed" });
+
         try {
           const employeeIds = employees.map((emp) => emp.id);
           if (employeeIds.length === 0) {
             return res.status(200).json({ success: true, count: 0, data: [] });
           }
+
           const empPlaceholders = employeeIds.map(() => "?").join(",");
+
+          // 1. Get assigned users
           const [userErr, users] = await new Promise((resolve) => {
-            const userSql = `SELECT id,user_type,photo,name,mobile,email,city,address,subscription_package,subscription_start_date,subscription_expiry_date,subscription_status,assigned_emp_id,assigned_emp_type,	assigned_emp_name FROM users WHERE assigned_emp_id IN (${empPlaceholders})`;
+            const userSql = `
+            SELECT id, user_type, photo, name, mobile, email, city, address,
+              subscription_package, subscription_start_date, subscription_expiry_date,
+              subscription_status, assigned_emp_id, assigned_emp_type, assigned_emp_name
+            FROM users
+            WHERE assigned_emp_id IN (${empPlaceholders})
+          `;
             pool.query(userSql, employeeIds, (err, result) =>
               resolve([err, result])
             );
           });
           if (userErr) throw userErr;
+
+          // 2. Get activity logs
           const [activityErr, activityLogs] = await new Promise((resolve) => {
-            const activitySql = `SELECT * FROM employee_activity WHERE employee_id IN (${empPlaceholders}) ORDER BY created_date DESC`;
+            const activitySql = `
+            SELECT employee_id, created_date
+            FROM employee_activity
+            WHERE employee_id IN (${empPlaceholders})
+            ORDER BY created_date DESC
+          `;
             pool.query(activitySql, employeeIds, (err, result) =>
               resolve([err, result])
             );
           });
           if (activityErr) throw activityErr;
+
+          // 3. Create map of latest activity per employee
+          const latestActivityMap = {};
+          for (const log of activityLogs) {
+            if (!latestActivityMap[log.employee_id]) {
+              latestActivityMap[log.employee_id] = log.created_date;
+            }
+          }
+
+          // 4. Build employeeUserMap with created_date added
           const employeeUserMap = {};
           users.forEach((user) => {
             const empId = user.assigned_emp_id;
+            const activityDate = latestActivityMap[empId]
+              ? moment(latestActivityMap[empId]).format("YYYY-MM-DD")
+              : null;
+
+            const userWithActivity = {
+              ...user,
+              created_date: activityDate,
+            };
+
             if (!employeeUserMap[empId]) employeeUserMap[empId] = [];
-            employeeUserMap[empId].push(user);
+            employeeUserMap[empId].push(userWithActivity);
           });
+
+          // 5. Map enriched employees
           const enrichedEmployees = employees.map((emp) => ({
             ...emp,
+            created_date: emp.created_date
+              ? moment(emp.created_date).format("YYYY-MM-DD")
+              : null,
+            created_time: emp.created_time
+              ? moment(emp.created_time, "HH:mm:ss").format("HH:mm:ss")
+              : null,
             assigned_users: employeeUserMap[emp.id] || [],
           }));
+
           res.status(200).json({
             success: true,
             count: userCount,
@@ -290,6 +340,7 @@ module.exports = {
       });
     });
   },
+
   assignEmployee: (req, res) => {
     const {
       user_id,
@@ -313,6 +364,7 @@ module.exports = {
     ) {
       return res.status(400).json({ error: "Missing required fields" });
     }
+    const created_date = moment().format("YYYY-MM-DD");
     const updateUserSql = `
       UPDATE users 
       SET assigned_emp_id = ?, 
@@ -325,7 +377,7 @@ module.exports = {
         employee_id, employee_name, designation, employee_type, city,
         assigned_user_id, assigned_user_name, assigned_user_type,
         assigned_for, created_date, created_by
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     pool.query(
       updateUserSql,
@@ -349,6 +401,7 @@ module.exports = {
             user_name,
             user_type,
             assigned_for,
+            created_date,
             created_by,
           ],
           (activityErr, activityRes) => {
@@ -507,14 +560,14 @@ module.exports = {
               });
             }
             const hashedPassword = await bcrypt.hash(password, 10);
-            const currentDate = new Date().toISOString().slice(0, 10);
-            const currentTime = new Date().toTimeString().slice(0, 8);
+            const currentDate = moment().format("YYYY-MM-DD");
+            const currentTime = moment().format("HH:mm:ss");
             const insertQuery = `
-          INSERT INTO employees
-          (name, mobile, email, designation, password, city, pincode, state, user_type, created_by,
-           created_date, created_time, status, created_userID)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `;
+            INSERT INTO employees
+            (name, mobile, email, designation, password, city, pincode, state, user_type, created_by,
+             created_date, created_time, status, created_userID)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          `;
             const values = [
               name,
               mobile,
@@ -539,7 +592,7 @@ module.exports = {
                   .json({ message: "Database error while inserting employee" });
               }
               res.status(201).json({
-                message: "Epmloyee registered successfully",
+                message: "Employee registered successfully",
                 userId: result.insertId,
               });
             });
