@@ -179,8 +179,8 @@ const generateInvoicePDF = (subscription) => {
           city: "Hyderabad",
           state: "Telangana",
           zip: "500073",
-          gstin: "36ABVFM6524D1ZZ",
-          email: "support@meetowner.in",
+          gstin: "36AASCM6453A1ZC",
+          email: "team@meetowner.in",
           phone: "+91 9701888071",
         },
         client: {

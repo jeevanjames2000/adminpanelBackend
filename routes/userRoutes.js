@@ -13,7 +13,10 @@ const userController = require("../controllers/usersController");
 router.get("/getAllUsersCount", userController.getAllUsersCount);
 router.get("/getAllUsersByType", userController.getAllUsersByType);
 router.get("/getAllUsersByTypeSearch", userController.getAllUsersByTypeSearch);
-
+router.get(
+  "/getAllEmployeesByTypeSearch",
+  userController.getAllEmployeesByTypeSearch
+);
 router.get("/getAllEmp/:userID", userController.getAllEmp);
 router.get(
   "/getAllUsersUnder/:created_userID",
@@ -22,6 +25,9 @@ router.get(
 
 router.post("/createUser", userController.createUser);
 router.post("/createEmployee", userController.createEmployee);
+router.post("/updateEmployee", userController.updateEmployee);
+router.post("/assignEmployee", userController.assignEmployee);
+router.delete("/deleteEmployee", userController.deleteEmployee);
 router.post("/updateUser", userController.updateUser);
 router.delete("/deleteUser", userController.deleteUser);
 router.get("/getProfile", userController.getProfileData);

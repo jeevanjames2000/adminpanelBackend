@@ -219,6 +219,157 @@ module.exports = {
       });
     });
   },
+  getAllEmployeesByTypeSearch: (req, res) => {
+    const { user_type, id, search } = req.query;
+    let sql = "SELECT * FROM employees";
+    let countSql = "SELECT COUNT(*) AS count FROM employees";
+    let whereClauses = [];
+    let values = [];
+    if (user_type) {
+      whereClauses.push("user_type = ?");
+      values.push(user_type);
+    }
+    if (id) {
+      whereClauses.push("id LIKE ?");
+      values.push(`%${id}%`);
+    }
+    if (search) {
+      whereClauses.push("(name LIKE ? OR mobile LIKE ?)");
+      values.push(`%${search}%`, `%${search}%`);
+    }
+    if (whereClauses.length > 0) {
+      const whereStr = " WHERE " + whereClauses.join(" AND ");
+      sql += whereStr;
+      countSql += whereStr;
+    }
+    pool.query(countSql, values, (err, countResult) => {
+      if (err) return res.status(500).json({ error: "Database query failed" });
+      const userCount = countResult[0].count;
+      pool.query(sql, values, async (err, employees) => {
+        if (err)
+          return res.status(500).json({ error: "Database query failed" });
+        try {
+          const employeeIds = employees.map((emp) => emp.id);
+          if (employeeIds.length === 0) {
+            return res.status(200).json({ success: true, count: 0, data: [] });
+          }
+          const empPlaceholders = employeeIds.map(() => "?").join(",");
+          const [userErr, users] = await new Promise((resolve) => {
+            const userSql = `SELECT id,user_type,photo,name,mobile,email,city,address,subscription_package,subscription_start_date,subscription_expiry_date,subscription_status,assigned_emp_id,assigned_emp_type,	assigned_emp_name FROM users WHERE assigned_emp_id IN (${empPlaceholders})`;
+            pool.query(userSql, employeeIds, (err, result) =>
+              resolve([err, result])
+            );
+          });
+          if (userErr) throw userErr;
+          const [activityErr, activityLogs] = await new Promise((resolve) => {
+            const activitySql = `SELECT * FROM employee_activity WHERE employee_id IN (${empPlaceholders}) ORDER BY created_date DESC`;
+            pool.query(activitySql, employeeIds, (err, result) =>
+              resolve([err, result])
+            );
+          });
+          if (activityErr) throw activityErr;
+          const employeeUserMap = {};
+          users.forEach((user) => {
+            const empId = user.assigned_emp_id;
+            if (!employeeUserMap[empId]) employeeUserMap[empId] = [];
+            employeeUserMap[empId].push(user);
+          });
+          const enrichedEmployees = employees.map((emp) => ({
+            ...emp,
+            assigned_users: employeeUserMap[emp.id] || [],
+          }));
+          res.status(200).json({
+            success: true,
+            count: userCount,
+            data: enrichedEmployees,
+          });
+        } catch (error) {
+          console.error("Unexpected error:", error);
+          res.status(500).json({ error: "Internal Server Error" });
+        }
+      });
+    });
+  },
+  assignEmployee: (req, res) => {
+    const {
+      user_id,
+      user_name,
+      user_type,
+      assigned_for,
+      created_by,
+      employee_id,
+      employee_name,
+      designation,
+      employee_type,
+      city,
+    } = req.body;
+    if (
+      !user_id ||
+      !employee_id ||
+      !employee_name ||
+      !employee_type ||
+      !user_name ||
+      !user_type
+    ) {
+      return res.status(400).json({ error: "Missing required fields" });
+    }
+    const updateUserSql = `
+      UPDATE users 
+      SET assigned_emp_id = ?, 
+          assigned_emp_name = ?, 
+          assigned_emp_type = ? 
+      WHERE id = ?
+    `;
+    const insertActivitySql = `
+      INSERT INTO employee_activity (
+        employee_id, employee_name, designation, employee_type, city,
+        assigned_user_id, assigned_user_name, assigned_user_type,
+        assigned_for, created_date, created_by
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW(), ?)
+    `;
+    pool.query(
+      updateUserSql,
+      [employee_id, employee_name, employee_type, user_id],
+      (err, result) => {
+        if (err) {
+          console.error("Error updating user:", err);
+          return res
+            .status(500)
+            .json({ error: "Failed to assign employee to user" });
+        }
+        pool.query(
+          insertActivitySql,
+          [
+            employee_id,
+            employee_name,
+            designation,
+            employee_type,
+            city,
+            user_id,
+            user_name,
+            user_type,
+            assigned_for,
+            created_by,
+          ],
+          (activityErr, activityRes) => {
+            if (activityErr) {
+              console.error(
+                "Error inserting into employee_activity:",
+                activityErr
+              );
+              return res
+                .status(500)
+                .json({ error: "Failed to log employee activity" });
+            }
+            res.status(200).json({
+              success: true,
+              message: "User assigned and activity logged successfully",
+            });
+          }
+        );
+      }
+    );
+  },
   createUser: async (req, res) => {
     const {
       name,
@@ -327,7 +478,7 @@ module.exports = {
       return res.status(400).json({ message: "User ID is required" });
     }
     try {
-      const creatorCheckQuery = `SELECT id FROM users WHERE id = ?`;
+      const creatorCheckQuery = `SELECT id FROM employees WHERE id = ?`;
       pool.query(
         creatorCheckQuery,
         [created_userID],
@@ -399,6 +550,81 @@ module.exports = {
       console.error("Server error:", err);
       res.status(500).json({ message: "Server error" });
     }
+  },
+  updateEmployee: async (req, res) => {
+    const { id, ...fieldsToUpdate } = req.body;
+    if (!id) {
+      return res
+        .status(400)
+        .json({ message: "Employee ID is required for update" });
+    }
+    if (Object.keys(fieldsToUpdate).length === 0) {
+      return res.status(400).json({ message: "No fields to update" });
+    }
+    try {
+      const { name, user_type, password } = fieldsToUpdate;
+      if (name && user_type) {
+        const duplicateCheckQuery = `
+        SELECT * FROM employees WHERE name = ? AND user_type = ? AND id != ?
+      `;
+        const [results] = await pool
+          .promise()
+          .query(duplicateCheckQuery, [name, user_type, id]);
+        if (results.length > 0) {
+          return res.status(409).json({
+            message:
+              "Another employee with the same name and user_type already exists",
+          });
+        }
+      }
+      if (password) {
+        const salt = await bcrypt.genSalt(10);
+        fieldsToUpdate.password = await bcrypt.hash(password, salt);
+      }
+      fieldsToUpdate.updated_date = currentDate;
+      fieldsToUpdate.updated_time = currentTime;
+      const updateFields = Object.keys(fieldsToUpdate)
+        .map((field) => `${field} = ?`)
+        .join(", ");
+      const values = Object.values(fieldsToUpdate);
+      values.push(id);
+      const updateQuery = `UPDATE employees SET ${updateFields} WHERE id = ?`;
+      await pool.promise().query(updateQuery, values);
+      res.status(200).json({ message: "Employee updated successfully" });
+    } catch (err) {
+      console.error("Update error:", err);
+      res.status(500).json({ message: "Server error" });
+    }
+  },
+  deleteEmployee: async (req, res) => {
+    const { id } = req.body;
+    if (!id) {
+      return res
+        .status(400)
+        .json({ message: "Employee ID is required for deletion" });
+    }
+    const checkQuery = `SELECT id FROM employees WHERE id = ?`;
+    pool.query(checkQuery, [id], (err, results) => {
+      if (err) {
+        console.error("Error checking employee:", err);
+        return res
+          .status(500)
+          .json({ message: "Database error while checking user" });
+      }
+      if (results.length === 0) {
+        return res.status(404).json({ message: "Employee not found" });
+      }
+      const deleteQuery = `DELETE FROM employees WHERE id = ?`;
+      pool.query(deleteQuery, [id], (err, result) => {
+        if (err) {
+          console.error("Error deleting employee:", err);
+          return res
+            .status(500)
+            .json({ message: "Database error during employee deletion" });
+        }
+        res.status(200).json({ message: "Employee deleted successfully" });
+      });
+    });
   },
   updateUser: async (req, res) => {
     const { id, ...fieldsToUpdate } = req.body;
@@ -480,7 +706,7 @@ module.exports = {
     try {
       const query = `
       SELECT user_type, COUNT(*) AS count 
-      FROM users 
+      FROM employees 
       WHERE created_userID = ? 
       GROUP BY user_type
     `;
@@ -490,7 +716,7 @@ module.exports = {
           return res.status(500).json({ error: "Database query failed" });
         }
         const employeesQuery = `
-        SELECT * FROM users WHERE created_userID = ?
+        SELECT * FROM employees WHERE created_userID = ?
       `;
         pool.query(employeesQuery, [userID], (empErr, empResults) => {
           if (empErr) {
@@ -796,7 +1022,6 @@ module.exports = {
   createShorts: (req, res) => {
     const { unique_property_id, property_name, short_type, shorts_order } =
       req.body;
-
     if (
       !unique_property_id ||
       !property_name ||
@@ -805,19 +1030,16 @@ module.exports = {
     ) {
       return res.status(400).json({ error: "All fields are required" });
     }
-
     const query = `
       INSERT INTO shorts (unique_property_id, property_name, short_type, shorts_order, created_at)
       VALUES (?, ?, ?, ?, NOW())
     `;
-
     const values = [
       unique_property_id,
       property_name,
       short_type,
       shorts_order,
     ];
-
     pool.query(query, values, (err, result) => {
       if (err) {
         console.error("Error inserting short:", err);
@@ -840,7 +1062,6 @@ module.exports = {
         ON shorts.unique_property_id COLLATE utf8mb4_unicode_ci = properties.unique_property_id COLLATE utf8mb4_unicode_ci
       ORDER BY RAND()
     `;
-
     pool.query(query, (err, results) => {
       if (err) {
         console.error("Error fetching shorts with properties:", err);
