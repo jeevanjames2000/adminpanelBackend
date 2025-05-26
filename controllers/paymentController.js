@@ -41,7 +41,6 @@ const sendWhatsappLeads = async (name, mobile) => {
     console.log("error: ", error);
   }
 };
-
 const sendInvoice = async (name, mobile, amount, invoiceUrl) => {
   const payload = {
     channelId: "67a9e14542596631a8cfc87b",
@@ -889,6 +888,7 @@ module.exports = {
             "",
           payment_status:
             paymentEntity.status === "captured" ? "captured" : "processing",
+            city:linkEntity.notes.city,
         };
         try {
           await axios.post(

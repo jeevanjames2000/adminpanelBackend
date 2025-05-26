@@ -379,6 +379,7 @@ module.exports = {
       gst_percentage,
       gst_number,
       rera_number,
+      city,
     } = req.body;
     let ruleUpdated = false;
     let packageUpdated = false;
@@ -446,10 +447,28 @@ module.exports = {
         updateFields.push("name = ?");
         updateValues.push(name);
       }
-      if (price !== undefined) {
-        updateFields.push("price = ?");
-        updateValues.push(price);
+      if (price !== undefined && city) {
+        pending++;
+        const upsertCityPriceQuery = `
+          INSERT INTO package_city_pricing (package_id, city, price)
+          VALUES (?, ?, ?)
+          ON DUPLICATE KEY UPDATE price = VALUES(price)
+        `;
+        pool.query(
+          upsertCityPriceQuery,
+          [packageNameId, city, price],
+          (err, result) => {
+            if (err) {
+              packageError = err.message;
+            } else {
+              packageUpdated = true;
+            }
+            pending--;
+            sendFinalResponse();
+          }
+        );
       }
+
       if (duration_days !== undefined) {
         updateFields.push("duration_days = ?");
         updateValues.push(duration_days);

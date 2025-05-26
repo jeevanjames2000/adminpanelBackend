@@ -233,7 +233,6 @@ module.exports = {
       });
     });
   },
-
   getAllEmployeesByTypeSearch: (req, res) => {
     const { user_type, id, search } = req.query;
     let sql = "SELECT * FROM employees";
@@ -354,7 +353,6 @@ module.exports = {
       });
     });
   },
-
   assignEmployee: (req, res) => {
     const {
       user_id,
@@ -442,14 +440,16 @@ module.exports = {
       name,
       mobile,
       email,
-      designation,
-      password,
       city,
       pincode,
       state,
       user_type,
       created_by,
       created_userID,
+      gst_number,
+      rera_number,
+      company_name,
+      address,
     } = req.body;
     if (!created_userID) {
       return res.status(400).json({ message: "User ID is required" });
@@ -482,21 +482,19 @@ module.exports = {
                 message: "User with the same name and user_type already exists",
               });
             }
-            const hashedPassword = await bcrypt.hash(password, 10);
+
             const currentDate = new Date().toISOString().slice(0, 10);
             const currentTime = new Date().toTimeString().slice(0, 8);
             const insertQuery = `
           INSERT INTO users
-          (name, mobile, email, designation, password, city, pincode, state, user_type, created_by,
-           created_date, created_time, status, created_userID)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          (name, mobile, email, city, pincode, state, user_type, created_by,
+           created_date, created_time, status, created_userID,gst_number,rera_number,company_name,address)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `;
             const values = [
               name,
               mobile,
               email,
-              designation,
-              hashedPassword,
               city,
               pincode,
               state,
@@ -506,6 +504,10 @@ module.exports = {
               currentTime,
               0,
               created_userID,
+              gst_number,
+              rera_number,
+              company_name,
+              address,
             ];
             pool.query(insertQuery, values, (insertErr, result) => {
               if (insertErr) {
