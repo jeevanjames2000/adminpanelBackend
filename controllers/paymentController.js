@@ -6,7 +6,6 @@ const { default: axios } = require("axios");
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
-
 const sendWhatsappLeads = async (name, mobile) => {
   const payload = {
     channelId: "67a9e14542596631a8cfc87b",
@@ -188,10 +187,12 @@ const generateInvoicePDF = (subscription) => {
           mobile: subscription.mobile,
           gstin: subscription.gst_number || "N/A",
           rerain: subscription.rera_number || "N/A",
+          city: subscription.city,
         },
         items: [
           {
             description: subscription.subscription_package,
+            city: subscription.city,
             status: subscription.payment_status,
             gst: subscription.gst_percentage,
             mode: subscription.payment_mode,
@@ -211,10 +212,12 @@ const generateInvoicePDF = (subscription) => {
           endDate: subscription.subscription_expiry_date.split("T")[0],
         },
         terms: [
-          "Payment must be made within 14 days of the invoice date.",
+          "This invoice is valid only upon successful payment confirmation.",
           "Payments are non-refundable once completed.",
           "All amounts are in Indian Rupees (INR).",
+          "All disputes are subject to jurisdiction only.",
           "This invoice is system-generated and does not require a signature.",
+          "Please retain this invoice for future reference and support queries.",
         ],
       };
       const invoicesDir = path.join(__dirname, "../uploads/invoices");
@@ -314,25 +317,49 @@ const generateInvoicePDF = (subscription) => {
         .font(fonts.bold)
         .fontSize(sizes.sectionTitle)
         .fillColor(colors.heading)
-        .text("Bill To:", 30, 220);
+        .text("Bill To:", 30, 210);
+      const startX = 30;
+      const startY = 230;
+      const lineHeight = 14;
+
       doc
         .font(fonts.regular)
         .fontSize(sizes.subtitle)
         .fillColor(colors.secondary);
-      doc.text(invoiceData.client.name, 30, 238);
-      doc.text(`Mobile: ${invoiceData.client.mobile}`, 30, 252);
-      doc.text(`GSTIN: ${invoiceData.client.gstin}`, 30, 266);
-      doc.text(`RERA Number: ${invoiceData.client.rerain}`, 30, 280);
+
+      doc.text(invoiceData.client.name, startX, startY);
+      doc.text(
+        `Mobile: ${invoiceData.client.mobile}`,
+        startX,
+        startY + lineHeight * 1
+      );
+      doc.text(
+        `City: ${invoiceData.client.city}`,
+        startX,
+        startY + lineHeight * 2
+      );
+      doc.text(
+        `GSTIN: ${invoiceData.client.gstin}`,
+        startX,
+        startY + lineHeight * 3
+      );
+      doc.text(
+        `RERA Number: ${invoiceData.client.rerain}`,
+        startX,
+        startY + lineHeight * 4
+      );
+
       const tableTop = 310;
-      const colWidths = [100, 100, 100, 100, 100];
-      const tableX = [30, 130, 230, 330, 430];
-      doc.rect(30, tableTop, 535, 20).fill(colors.background);
+      const colWidths = [100, 100, 100, 100, 100, 100];
+      const tableX = [30, 130, 230, 330, 430, 510];
+      doc.rect(30, tableTop, 580, 20).fill(colors.background);
       doc.font(fonts.bold).fontSize(sizes.tableText).fillColor(colors.heading);
       doc.text("Subscription", tableX[0], tableTop + 6);
-      doc.text("Status", tableX[1], tableTop + 6);
-      doc.text("GST", tableX[2], tableTop + 6);
-      doc.text("Mode", tableX[3], tableTop + 6);
-      doc.text("Amount", tableX[4], tableTop + 6);
+      doc.text("City", tableX[1], tableTop + 6);
+      doc.text("Status", tableX[2], tableTop + 6);
+      doc.text("GST", tableX[3], tableTop + 6);
+      doc.text("Mode", tableX[4], tableTop + 6);
+      doc.text("Amount", tableX[5], tableTop + 6);
       drawLine(tableTop + 20);
       const rowTop = tableTop + 20;
       doc
@@ -342,13 +369,14 @@ const generateInvoicePDF = (subscription) => {
       invoiceData.items.forEach((item, index) => {
         const y = rowTop + index * 20;
         doc.text(item.description, tableX[0], y + 6);
-        doc.text(item.status, tableX[1], y + 6);
-        doc.text(`${item.gst}%`, tableX[2], y + 6);
-        doc.text(item.mode, tableX[3], y + 6);
-        doc.text(formatCurrency(item.amount), tableX[4], y + 6);
+        doc.text(item.city, tableX[1], y + 6);
+        doc.text(item.status, tableX[2], y + 6);
+        doc.text(`${item.gst}%`, tableX[3], y + 6);
+        doc.text(item.mode, tableX[4], y + 6);
+        doc.text(formatCurrency(item.amount), tableX[5], y + 6);
         drawLine(y + 20);
       });
-      const totalTop = rowTop + invoiceData.items.length * 20 + 20;
+      const totalTop = rowTop + invoiceData.items.length * 20 + 10;
       const labelX = 400;
       const amountX = 465;
       doc
@@ -465,25 +493,24 @@ const generateInvoicePDF = (subscription) => {
     }
   });
 };
+
 module.exports = {
   createOrder: (req, res) => {
-    const { amount, currency, user_id } = req.body;
+    const { amount, currency, user_id, city } = req.body;
     if (!user_id) {
       return res
         .status(400)
         .json({ success: false, message: "User ID is required" });
     }
     pool.execute(
-      `SELECT subscription_expiry_date, subscription_status 
-       FROM users 
-       WHERE id = ?`,
+      `SELECT id FROM users WHERE id = ?`,
       [user_id],
       (err, userResults) => {
         if (err) {
           console.error("DB Query Error:", err);
           return res.status(500).json({
             success: false,
-            message: "Failed to check subscription status",
+            message: "Failed to check user",
           });
         }
         if (!userResults || userResults.length === 0) {
@@ -491,35 +518,53 @@ module.exports = {
             .status(400)
             .json({ success: false, message: "User not found" });
         }
-        const { subscription_expiry_date, subscription_status } =
-          userResults[0];
-        const currentDate = moment();
-        const expiryDate = moment(subscription_expiry_date);
-        if (
-          subscription_status === "active" &&
-          expiryDate.isAfter(currentDate)
-        ) {
-          return res.status(400).json({
-            success: false,
-            message: "Active subscription already exists",
-            expiry_date: subscription_expiry_date,
-          });
-        }
-        const options = {
-          amount: amount * 100,
-          currency: currency || "INR",
-          receipt: `receipt_${Date.now()}`,
-          payment_capture: 1,
-        };
-        razorpayInstance.orders.create(options, (err, order) => {
-          if (err) {
-            console.error("Razorpay Error:", err);
-            return res
-              .status(500)
-              .json({ success: false, message: err.message });
+        pool.execute(
+          `SELECT subscription_expiry_date, subscription_status 
+           FROM payment_details 
+           WHERE user_id = ? AND city = ? AND payment_status = 'success' AND subscription_status = 'active' 
+           ORDER BY subscription_expiry_date DESC LIMIT 1`,
+          [user_id, city],
+          (err, subResults) => {
+            if (err) {
+              console.error("DB Query Error:", err);
+              return res.status(500).json({
+                success: false,
+                message: "Failed to check subscription status",
+              });
+            }
+            if (subResults && subResults.length > 0) {
+              const { subscription_expiry_date, subscription_status } =
+                subResults[0];
+              const currentDate = moment();
+              const expiryDate = moment(subscription_expiry_date);
+              if (
+                subscription_status === "active" &&
+                expiryDate.isAfter(currentDate)
+              ) {
+                return res.status(400).json({
+                  success: false,
+                  message: "Active subscription already exists",
+                  expiry_date: subscription_expiry_date,
+                });
+              }
+            }
+            const options = {
+              amount: amount * 100,
+              currency: currency || "INR",
+              receipt: `receipt_${Date.now()}`,
+              payment_capture: 1,
+            };
+            razorpayInstance.orders.create(options, (err, order) => {
+              if (err) {
+                console.error("Razorpay Error:", err);
+                return res
+                  .status(500)
+                  .json({ success: false, message: err.message });
+              }
+              res.json(order);
+            });
           }
-          res.json(order);
-        });
+        );
       }
     );
   },
@@ -688,6 +733,7 @@ module.exports = {
             invoice_number,
             created_at: moment().toISOString(),
             name,
+            city,
             mobile,
             gst_number: gst_number || "N/A",
             rera_number: rera_number || "N/A",
@@ -787,19 +833,26 @@ module.exports = {
     }
   },
   checkSubscription: (req, res) => {
-    const { user_id } = req.body;
-    if (!user_id) {
-      return res
-        .status(400)
-        .json({ success: false, message: "User ID is required" });
+    const { user_id, city } = req.body;
+    if (!user_id || !city) {
+      return res.status(400).json({
+        success: false,
+        message: "User ID and City are required",
+      });
     }
     pool.execute(
       `SELECT 
         subscription_expiry_date, 
+        payment_status,
+        subscription_package,
         subscription_status 
-       FROM users 
-       WHERE id = ?`,
-      [user_id],
+       FROM payment_details 
+       WHERE user_id = ? AND city = ? 
+         AND payment_status = 'success' 
+         AND subscription_status = 'active' 
+       ORDER BY subscription_expiry_date DESC 
+       LIMIT 1`,
+      [user_id, city],
       (err, results) => {
         if (err) {
           console.error("DB Query Error:", err);
@@ -809,11 +862,17 @@ module.exports = {
           });
         }
         if (!results || results.length === 0) {
-          return res
-            .status(400)
-            .json({ success: false, message: "User not found" });
+          return res.status(200).json({
+            success: true,
+            message: "No active subscription found",
+          });
         }
-        const { subscription_expiry_date, subscription_status } = results[0];
+        const {
+          subscription_expiry_date,
+          subscription_status,
+          payment_status,
+          subscription_package,
+        } = results[0];
         const currentDate = moment();
         const expiryDate = moment(subscription_expiry_date);
         const isSubscriptionActive =
@@ -821,6 +880,8 @@ module.exports = {
         res.json({
           success: true,
           isSubscriptionActive,
+          payment_status,
+          subscription_package,
           expiry_date: subscription_expiry_date,
         });
       }
@@ -888,7 +949,7 @@ module.exports = {
             "",
           payment_status:
             paymentEntity.status === "captured" ? "captured" : "processing",
-            city:linkEntity.notes.city,
+          city: linkEntity.notes.city,
         };
         try {
           await axios.post(
@@ -1008,7 +1069,7 @@ module.exports = {
       return res.status(400).json({
         success: false,
         message:
-          "user_id, customer_email, customer_contact, amount, and subscription_package are required",
+          "user_id, email, mobile, amount, subscription_package, and city are required",
       });
     }
     const validPackages = [
@@ -1031,14 +1092,14 @@ module.exports = {
       });
     }
     pool.execute(
-      `SELECT subscription_expiry_date, subscription_status FROM users WHERE id = ?`,
+      `SELECT id FROM users WHERE id = ?`,
       [user_id],
       (err, userResults) => {
         if (err) {
           console.error("DB Query Error:", err);
           return res.status(500).json({
             success: false,
-            message: "Failed to check subscription status",
+            message: "Failed to check user existence",
           });
         }
         if (!userResults || userResults.length === 0) {
@@ -1046,64 +1107,81 @@ module.exports = {
             .status(404)
             .json({ success: false, message: "User not found" });
         }
-        const { subscription_expiry_date, subscription_status } =
-          userResults[0];
-        const currentDate = moment();
-        const expiryDate = moment(subscription_expiry_date);
-        if (
-          subscription_status === "active" &&
-          expiryDate.isAfter(currentDate)
-        ) {
-          return res.status(400).json({
-            success: false,
-            message: "Active subscription already exists",
-            expiry_date: subscription_expiry_date,
-          });
-        }
-        const options = {
-          amount: Math.round(amount * 100),
-          currency,
-          accept_partial: false,
-          description: `Subscription Payment - ${subscription_package}`,
-          customer: {
-            name: name,
-            email: email,
-            contact: mobile,
-          },
-          notify: {
-            sms: true,
-            email: true,
-          },
-          reminder_enable: true,
-          callback_url: "https://meetowner.in/",
-          callback_method: "get",
-          notes: {
-            user_id,
-            name: name,
-            mobile: mobile,
-            email: email,
-            city: city,
-            subscription_package,
-            payment_amount: amount,
-          },
-          expire_by: moment().add(7, "days").unix(),
-        };
-        razorpayInstance.paymentLink.create(options, (err, link) => {
-          console.log("link: ", link);
-          if (err) {
-            console.error("Razorpay Payment Link Error:", err);
-            return res.status(500).json({
-              success: false,
-              message:
-                err.error?.description || "Failed to create payment link",
+        pool.execute(
+          `SELECT subscription_expiry_date, subscription_status 
+           FROM payment_details 
+           WHERE user_id = ? AND city = ? AND payment_status = 'success' AND subscription_status = 'active'
+           ORDER BY subscription_expiry_date DESC LIMIT 1`,
+          [user_id, city],
+          (err, paymentResults) => {
+            if (err) {
+              console.error("DB Query Error - payment_details:", err);
+              return res.status(500).json({
+                success: false,
+                message: "Failed to check existing subscriptions",
+              });
+            }
+            if (paymentResults && paymentResults.length > 0) {
+              const { subscription_expiry_date, subscription_status } =
+                paymentResults[0];
+              const currentDate = moment();
+              const expiryDate = moment(subscription_expiry_date);
+              if (
+                subscription_status === "active" &&
+                expiryDate.isAfter(currentDate)
+              ) {
+                return res.status(400).json({
+                  success: false,
+                  message: "Active subscription already exists",
+                  expiry_date: subscription_expiry_date,
+                });
+              }
+            }
+            const options = {
+              amount: Math.round(amount * 100),
+              currency,
+              accept_partial: false,
+              description: `Subscription Payment - ${subscription_package}`,
+              customer: {
+                name: name,
+                email: email,
+                contact: mobile,
+              },
+              notify: {
+                sms: true,
+                email: true,
+              },
+              reminder_enable: true,
+              callback_url: "https://meetowner.in/",
+              callback_method: "get",
+              notes: {
+                user_id,
+                name,
+                mobile,
+                email,
+                city,
+                subscription_package,
+                payment_amount: amount,
+              },
+              expire_by: moment().add(7, "days").unix(),
+            };
+            razorpayInstance.paymentLink.create(options, (err, link) => {
+              if (err) {
+                console.error("Razorpay Payment Link Error:", err);
+                return res.status(500).json({
+                  success: false,
+                  message:
+                    err.error?.description || "Failed to create payment link",
+                });
+              }
+              return res.status(200).json({
+                success: true,
+                payment_link: link.short_url,
+                link_details: link,
+              });
             });
           }
-          return res.status(200).json({
-            success: true,
-            payment_link: link.short_url,
-            link_details: link,
-          });
-        });
+        );
       }
     );
   },
@@ -1244,6 +1322,7 @@ module.exports = {
             created_at: moment().toISOString(),
             name,
             mobile,
+            city,
             gst_number: gst_number || "N/A",
             rera_number: rera_number || "N/A",
             subscription_package,
