@@ -101,22 +101,42 @@ module.exports = {
   },
   getSingleProperty: async (req, res) => {
     const { unique_property_id } = req.query;
+
     if (!unique_property_id) {
       return res.status(400).json({ error: "unique_property_id is required" });
     }
+
     try {
       pool.query(
         `SELECT * FROM properties WHERE unique_property_id = ? LIMIT 1`,
         [unique_property_id],
-        (err, results) => {
+        (err, propertyResults) => {
           if (err) {
             console.error("Error fetching property:", err);
             return res.status(500).json({ error: "Database query failed" });
           }
-          if (results.length === 0) {
+
+          if (propertyResults.length === 0) {
             return res.status(404).json({ error: "Property not found" });
           }
-          res.status(200).json({ property: results[0] });
+
+          const property = propertyResults[0];
+
+          pool.query(
+            `SELECT * FROM around_this_property WHERE unique_property_id = ?`,
+            [unique_property_id],
+            (err2, aroundPlacesResults) => {
+              if (err2) {
+                console.error("Error fetching around places:", err2);
+                return res.status(500).json({ error: "Database query failed" });
+              }
+
+              // Add around_places into the property object
+              property.around_places = aroundPlacesResults || [];
+
+              res.status(200).json({ property });
+            }
+          );
         }
       );
     } catch (error) {
@@ -661,26 +681,69 @@ module.exports = {
       res.status(500).json({ message: "Internal Server Error" });
     }
   },
-  getPropertiesByUserID: (req, res) => {
+  getPropertiesByUserID: async (req, res) => {
     const { user_id } = req.query;
     if (!user_id) {
       return res.status(400).json({ error: "Missing user_id parameter" });
     }
     try {
-      const query = `SELECT * FROM properties WHERE user_id = ? ORDER BY id ASC LIMIT 10`;
-      const queryParams = [user_id];
-      pool.query(query, queryParams, (err, results) => {
-        if (err) {
-          console.error("Error fetching properties:", err);
-          return res.status(500).json({ error: "Database query failed" });
-        }
-        res.status(200).json({
-          count: results.length,
-          properties: results,
-        });
+      const propertyQuery = `SELECT * FROM properties WHERE user_id = ? ORDER BY id ASC LIMIT 10`;
+      const [properties] = await pool.promise().query(propertyQuery, [user_id]);
+      if (!properties.length) {
+        return res.status(200).json({ count: 0, properties: [] });
+      }
+      const propertyActivities = await Promise.all(
+        properties.map(async (property) => {
+          const activityQuery = `
+            SELECT 
+              cs.*, 
+              u.id AS user_id, 
+              u.name AS user_name, 
+              u.email AS user_email, 
+              u.mobile AS user_mobile,
+              p.property_name AS property_name
+            FROM contact_seller cs
+            LEFT JOIN users u ON cs.user_id = u.id
+            LEFT JOIN properties p ON cs.unique_property_id = p.unique_property_id
+            WHERE cs.unique_property_id = ?
+            ORDER BY cs.id DESC
+          `;
+          const [activityResults] = await pool
+            .promise()
+            .query(activityQuery, [property.unique_property_id]);
+          const formattedActivity = activityResults.map((row) => {
+            const {
+              user_id,
+              user_name,
+              user_email,
+              user_mobile,
+              property_name,
+              ...contact
+            } = row;
+            return {
+              ...contact,
+              property_name,
+              userDetails: {
+                id: user_id,
+                name: user_name,
+                email: user_email,
+                mobile: user_mobile,
+              },
+            };
+          });
+          return {
+            ...property,
+            totalContacted: formattedActivity.length,
+            activity: formattedActivity,
+          };
+        })
+      );
+      return res.status(200).json({
+        count: propertyActivities.length,
+        properties: propertyActivities,
       });
     } catch (error) {
-      console.error("Error fetching properties by user ID:", error);
+      console.error("Error fetching properties with activity:", error);
       res.status(500).json({ message: "Internal Server Error" });
     }
   },
