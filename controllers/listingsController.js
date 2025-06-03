@@ -101,11 +101,9 @@ module.exports = {
   },
   getSingleProperty: async (req, res) => {
     const { unique_property_id } = req.query;
-
     if (!unique_property_id) {
       return res.status(400).json({ error: "unique_property_id is required" });
     }
-
     try {
       pool.query(
         `SELECT * FROM properties WHERE unique_property_id = ? LIMIT 1`,
@@ -115,13 +113,10 @@ module.exports = {
             console.error("Error fetching property:", err);
             return res.status(500).json({ error: "Database query failed" });
           }
-
           if (propertyResults.length === 0) {
             return res.status(404).json({ error: "Property not found" });
           }
-
           const property = propertyResults[0];
-
           pool.query(
             `SELECT * FROM around_this_property WHERE unique_property_id = ?`,
             [unique_property_id],
@@ -130,10 +125,7 @@ module.exports = {
                 console.error("Error fetching around places:", err2);
                 return res.status(500).json({ error: "Database query failed" });
               }
-
-              // Add around_places into the property object
               property.around_places = aroundPlacesResults || [];
-
               res.status(200).json({ property });
             }
           );
@@ -687,7 +679,7 @@ module.exports = {
       return res.status(400).json({ error: "Missing user_id parameter" });
     }
     try {
-      const propertyQuery = `SELECT * FROM properties WHERE user_id = ? ORDER BY id ASC LIMIT 10`;
+      const propertyQuery = `SELECT * FROM properties WHERE user_id = ? ORDER BY id DESC`;
       const [properties] = await pool.promise().query(propertyQuery, [user_id]);
       if (!properties.length) {
         return res.status(200).json({ count: 0, properties: [] });
@@ -856,6 +848,7 @@ LIMIT 15;
       LEFT JOIN properties p ON sp.property_id = p.unique_property_id
       LEFT JOIN users u ON p.user_id = u.id
       ${property_for ? "WHERE p.property_for = ?" : ""}
+      ORDER BY sp.id DESC
     `;
       const values = property_for ? [property_for] : [];
       const [result] = await pool.promise().query(query, values);
@@ -1060,19 +1053,42 @@ LIMIT 15;
   },
   getAllPropertyViews: (req, res) => {
     const { property_id } = req.query;
-    let query = `SELECT * FROM property_views`;
+    let query;
     const params = [];
+
     if (property_id) {
-      query += ` WHERE property_id = ?`;
+      query = `
+        SELECT 
+          pv.*, 
+          p.google_address,
+          p.city_id
+        FROM property_views pv
+        LEFT JOIN properties p ON pv.property_id = p.unique_property_id
+        WHERE pv.property_id = ? 
+        ORDER BY pv.id DESC
+      `;
       params.push(property_id);
+    } else {
+      query = `
+        SELECT 
+          pv.property_id, 
+          pv.property_name,
+          p.google_address,
+          p.city_id,
+          COUNT(*) AS view_count
+        FROM property_views pv
+        LEFT JOIN properties p ON pv.property_id = p.unique_property_id
+        GROUP BY pv.property_id, pv.property_name, p.google_address, p.city_id
+        ORDER BY view_count DESC
+      `;
     }
-    query += ` ORDER BY id DESC`;
+
     pool.query(query, params, (err, results) => {
       if (err) {
         console.error("Error fetching property views:", err);
         return res.status(500).json({ error: "Database error" });
       }
-      return res.status(200).json({
+      res.status(200).json({
         count: results.length,
         views: results,
       });

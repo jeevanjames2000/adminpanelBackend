@@ -1,60 +1,85 @@
 const moment = require("moment");
 const pool = require("../config/db");
-
+const { default: axios } = require("axios");
 module.exports = {
   getAllEnquiries: (req, res) => {
     const query = `SELECT * FROM searched_properties ORDER BY id DESC`;
-
     pool.query(query, (err, results) => {
       if (err) {
         console.error("Error fetching enquiries:", err);
         return res.status(500).json({ error: "Database error" });
       }
-
       if (results.length === 0) {
         return res.status(404).json({ message: "No enquiries found" });
       }
-
       return res.status(200).json({ results });
     });
   },
-
   getAllContactSellers: (req, res) => {
     const query = `SELECT * FROM contact_seller ORDER BY id DESC`;
-
     pool.query(query, (err, results) => {
       if (err) {
         console.error("Error fetching contact sellers:", err);
         return res.status(500).json({ error: "Database error" });
       }
-
       if (results.length === 0) {
         return res.status(404).json({ message: "No contact sellers found" });
       }
-
       return res.status(200).json({ results });
     });
   },
+  getAllContactSellersByFilter: async (req, res) => {
+    const { property_for, search = "" } = req.query;
+    try {
+      const query = `
+        SELECT 
+          cs.id, cs.user_id, cs.unique_property_id, cs.fullname, cs.mobile, cs.email, cs.created_date,
+          COALESCE(p.property_for, 'Unknown') AS property_for,
+          p.property_name,
+          -- Owner Details
+          u.id AS owner_user_id, u.name AS owner_name, u.mobile AS owner_mobile,
+          u.email AS owner_email, u.photo AS owner_photo, u.user_type AS owner_type
+        FROM contact_seller cs
+        LEFT JOIN properties p ON cs.unique_property_id = p.unique_property_id
+        LEFT JOIN users u ON p.user_id = u.id
+        ${property_for ? "WHERE p.property_for = ?" : ""}
+        ORDER BY cs.id DESC
+      `;
+      const values = property_for ? [property_for] : [];
+      const [results] = await pool.promise().query(query, values);
+      if (results.length === 0) {
+        return res.status(404).json({
+          message: `No contact sellers found for: ${property_for || "All"}`,
+          count: 0,
+          data: [],
+        });
+      }
+      return res.status(200).json({
+        message: "Data fetched successfully",
+        count: results.length,
+        data: results,
+      });
+    } catch (error) {
+      console.error("Error fetching contact sellers:", error);
+      return res.status(500).json({ message: "Internal Server Error" });
+    }
+  },
   getUserContactSellers: (req, res) => {
     const { user_id } = req.query;
-
     if (!user_id) {
       return res.status(400).json({ error: "User ID is required" });
     }
     const query = `SELECT * FROM contact_seller WHERE user_id = ? ORDER BY id DESC`;
-
     pool.query(query, [user_id], (err, results) => {
       if (err) {
         console.error("Error fetching contact sellers for user:", err);
         return res.status(500).json({ error: "Database error" });
       }
-
       if (results.length === 0) {
         return res
           .status(404)
           .json({ message: "No contact sellers found for this user" });
       }
-
       return res.status(200).json({ results });
     });
   },
@@ -122,21 +147,20 @@ module.exports = {
   },
   contactSeller: (req, res) => {
     const { user_id, unique_property_id, fullname, email, mobile } = req.body;
-
     if (!user_id || !unique_property_id) {
       return res
         .status(400)
         .json({ message: "User ID and Unique Property ID are required" });
     }
-
     const created_date = moment().format("YYYY-MM-DD");
     const updated_date = moment().format("YYYY-MM-DD");
+    const created_time = moment().format("HH:mm:ss");
+
     const query = `
     INSERT INTO contact_seller 
-    (user_id, unique_property_id, fullname, email, mobile, created_date, updated_date) 
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    (user_id, unique_property_id, fullname, email, mobile, created_date, updated_date,created_time) 
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
   `;
-
     const values = [
       user_id,
       unique_property_id,
@@ -145,14 +169,13 @@ module.exports = {
       mobile || null,
       created_date,
       updated_date,
+      created_time,
     ];
-
     pool.query(query, values, (err, result) => {
       if (err) {
         console.error("Error inserting contact seller info:", err);
         return res.status(500).json({ error: "Database error" });
       }
-
       return res
         .status(200)
         .json({ message: "Contact seller entry added successfully" });
@@ -223,23 +246,19 @@ module.exports = {
   },
   contactUs: (req, res) => {
     const { name, mobile, email, message } = req.body;
-
     if (!name || !mobile || !email || !message) {
       return res.status(400).json({ error: "All fields are required" });
     }
-
     const status = 1;
     const created_date = moment().format("YYYY-MM-DD");
     const created_time = moment().format("HH:mm:ss");
     const updated_date = created_date;
     const updated_time = created_time;
-
     const sql = `
     INSERT INTO customer_messages 
     (name, mobile, email, message, status, created_date, created_time, updated_date, updated_time)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `;
-
     const values = [
       name,
       mobile,
@@ -251,7 +270,6 @@ module.exports = {
       updated_date,
       updated_time,
     ];
-
     pool.query(sql, values, (err, result) => {
       if (err) {
         console.error("Error inserting contact message:", err);
@@ -261,5 +279,133 @@ module.exports = {
         .status(200)
         .json({ success: true, message: "Message submitted successfully" });
     });
+  },
+  sendLeadTextMessage: async (req, res) => {
+    const { mobile, ownerName, name, property_for, property_name, location } =
+      req.body;
+    if (!mobile) {
+      return res.status(400).json({
+        status: "error",
+        message: "Mobile number is required",
+      });
+    }
+    const user_id = "meetowner2023";
+    const pwd = "Meet@123";
+    const sender_id = "METOWR";
+    const peid = "1101542890000073814";
+    const tpid = "1107169859635676195";
+    const message = `Hello ${ownerName}! Exciting update! You've got a new client inquiry from Meetowner🎉  ${name} ${mobile} has shown interest in your listings for ${property_for} at ${property_name} in ${location} -MEET OWNER`;
+    const api_url = "http://tra.bulksmshyderabad.co.in/websms/sendsms.aspx";
+    try {
+      const response = await axios.get(api_url, {
+        params: {
+          userid: user_id,
+          password: pwd,
+          sender: sender_id,
+          mobileno: mobile,
+          msg: message,
+          peid: peid,
+          tpid: tpid,
+        },
+      });
+      return res.status(200).json({
+        status: "success",
+        message: "Lead SMS sent successfully!",
+        apiResponse: response.data,
+      });
+    } catch (error) {
+      console.error("SMS API Error:", error.message);
+      return res.status(500).json({
+        status: "error",
+        message: "Error sending SMS",
+        error: error.message,
+      });
+    }
+  },
+  userActivity: (req, res) => {
+    const {
+      user_id,
+      name,
+      mobile,
+      email,
+      searched_location,
+      searched_city,
+      searched_for,
+      sub_type,
+      property_in,
+    } = req.body;
+    if (!user_id) {
+      return res.status(400).json({ message: "User ID is required" });
+    }
+    const created_date = moment().format("YYYY-MM-DD");
+    const created_time = moment().format("HH:mm:ss");
+    const query = `
+      INSERT INTO usersActivity (
+        user_id, mobile, email, name, searched_location, searched_for,
+        searched_city, property_in, sub_type, created_date, created_time
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `;
+    const values = [
+      user_id,
+      mobile || null,
+      email || null,
+      name || null,
+      searched_location || null,
+      searched_for || null,
+      searched_city || null,
+      property_in || null,
+      sub_type || null,
+      created_date,
+      created_time,
+    ];
+    pool.query(query, values, (err, result) => {
+      if (err) {
+        console.error("Error inserting user activity:", err);
+        return res.status(500).json({ message: "Internal server error" });
+      }
+      res.status(200).json({ message: "User activity recorded successfully" });
+    });
+  },
+  getMostSearchedLocations: (req, res) => {
+    const { city } = req.query;
+    if (city) {
+      const query = `
+        SELECT * FROM usersActivity
+        WHERE searched_location = ?
+        ORDER BY created_date DESC, created_time DESC
+      `;
+      pool.query(query, [city], (err, results) => {
+        if (err) {
+          console.error("Error fetching user activity for city:", err);
+          return res.status(500).json({ message: "Internal Server Error" });
+        }
+        return res.status(200).json({
+          message: `User search data for city: ${city}`,
+          count: results.length,
+          data: results,
+        });
+      });
+    } else {
+      const query = `
+        SELECT 
+          searched_location,
+          COUNT(*) AS total_searches
+        FROM usersActivity
+        WHERE searched_location IS NOT NULL AND searched_location != ''
+        GROUP BY searched_location
+        ORDER BY total_searches DESC
+      `;
+      pool.query(query, (err, results) => {
+        if (err) {
+          console.error("Error fetching most searched locations:", err);
+          return res.status(500).json({ message: "Internal Server Error" });
+        }
+        return res.status(200).json({
+          message: "Most searched locations fetched successfully",
+          count: results.length,
+          data: results,
+        });
+      });
+    }
   },
 };

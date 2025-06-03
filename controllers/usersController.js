@@ -861,6 +861,31 @@ module.exports = {
       res.status(500).json({ error: "Internal server error" });
     }
   },
+  getEmpProfileData: (req, res) => {
+    const { user_id } = req.query;
+    if (!user_id) {
+      return res.status(400).json({ error: "user_id is required" });
+    }
+    try {
+      pool.query(
+        `SELECT * FROM employees WHERE id = ? LIMIT 1`,
+        [user_id],
+        (err, results) => {
+          if (err) {
+            console.error("Error fetching profile:", err);
+            return res.status(500).json({ error: "Database query failed" });
+          }
+          if (results.length === 0) {
+            return res.status(404).json({ error: "Property not found" });
+          }
+          res.status(200).json(results[0]);
+        }
+      );
+    } catch (error) {
+      console.error("Server error:", error);
+      res.status(500).json({ error: "Internal server error" });
+    }
+  },
   uploadUserImage: [
     upload.single("photo"),
     (req, res) => {
@@ -870,6 +895,28 @@ module.exports = {
       }
       const fileUrl = `uploads/${req.file.filename}`;
       const query = "UPDATE users SET photo = ? WHERE id = ?";
+      pool.query(query, [fileUrl, user_id], (err, result) => {
+        if (err) {
+          console.error("DB update error:", err);
+          return res.status(500).json({ message: "Error updating user photo" });
+        }
+        return res.status(200).json({
+          message: "Image uploaded and user photo updated",
+          photo: fileUrl,
+          user_id,
+        });
+      });
+    },
+  ],
+  uploadEmpImage: [
+    upload.single("photo"),
+    (req, res) => {
+      const { user_id } = req.body;
+      if (!req.file || !user_id) {
+        return res.status(400).json({ message: "Missing file or id" });
+      }
+      const fileUrl = `uploads/${req.file.filename}`;
+      const query = "UPDATE employees SET photo = ? WHERE id = ?";
       pool.query(query, [fileUrl, user_id], (err, result) => {
         if (err) {
           console.error("DB update error:", err);

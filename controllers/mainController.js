@@ -34,7 +34,6 @@ module.exports = {
     let params = [];
 
     if (!query) {
-      // Return top 10 localities for the city by default
       sql = `
         SELECT DISTINCT locality FROM city_localities 
         WHERE LOWER(city) = LOWER(?) AND status = 'active'

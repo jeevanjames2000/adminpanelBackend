@@ -10,4 +10,6 @@ router.get("/sendOtp", authController.sendOtp);
 router.post("/sendWhatsappLeads", authController.sendWhatsappLeads);
 router.post("/loginnew", authController.AuthLoginNew);
 router.post("/registernew", authController.AuthRegisterNew);
+router.post("/register", authController.AuthRegister);
+
 module.exports = router;

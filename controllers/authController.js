@@ -44,25 +44,35 @@ module.exports = {
   },
   loginAgents: (req, res) => {
     const { mobile, password } = req.body;
+
     if (!mobile || !password) {
       return res
         .status(400)
         .json({ message: "Mobile and password are required" });
     }
-    const query = `SELECT * FROM users WHERE mobile = ? AND user_type != 2`;
+
+    const query = `SELECT * FROM employees WHERE mobile = ?`;
+
     pool.query(query, [mobile], async (err, results) => {
       if (err) {
         console.error("Database error during login:", err);
         return res.status(500).json({ message: "Database error" });
       }
+
       if (results.length === 0) {
-        return res.status(401).json({ message: "Invalid mobile or password" });
+        return res.status(401).json({ message: "User not found" });
       }
+
       const user = results[0];
-      console.log("user: ", user);
-      if (!user.password) {
-        return res.status(500).json({ message: "Password not found for user" });
+
+      // ✅ Allow only specific user types
+      const allowedUserTypes = [1, 7, 8, 9, 10, 11];
+      if (!allowedUserTypes.includes(user.user_type)) {
+        return res
+          .status(403)
+          .json({ message: "You don't have permission to login" });
       }
+
       try {
         const isPasswordValid = await bcrypt.compare(password, user.password);
         if (!isPasswordValid) {
@@ -70,13 +80,13 @@ module.exports = {
             .status(401)
             .json({ message: "Invalid mobile or password" });
         }
+
         const token = jwt.sign(
           { id: user.id, mobile: user.mobile },
           JWT_SECRET,
-          {
-            expiresIn: "7h",
-          }
+          { expiresIn: "7h" }
         );
+
         res.status(200).json({
           message: "Login successful",
           user: {
@@ -338,6 +348,90 @@ module.exports = {
           name,
           mobile,
           city_name,
+          email,
+          created_date,
+          created_time,
+          gst_number,
+          rera_number,
+          company_name,
+        ]);
+      const user_id = insertResult.insertId.toString();
+      const accessToken = jwt.sign(
+        { user_id: user_id },
+        process.env.JWT_SECRET,
+        {
+          expiresIn: "7d",
+        }
+      );
+      const user_details = {
+        user_id: user_id,
+        user_type: user_type_id,
+        name: name,
+        mobile: mobile,
+        email: email,
+      };
+      return res.status(201).json({
+        status: "success",
+        message: "User created successfully",
+        user_details,
+        accessToken,
+      });
+    } catch (error) {
+      console.error("Error in AuthRegisterNew:", error);
+      return res.status(500).json({
+        status: "error",
+        message: "Internal server error",
+      });
+    }
+  },
+  AuthRegister: async (req, res) => {
+    const {
+      userType,
+      name,
+      mobile,
+      city,
+      email,
+      gst_number,
+      rera_number,
+      company_name,
+    } = req.body;
+    try {
+      const [userTypeRows] = await pool
+        .promise()
+        .query(
+          "SELECT login_type_id FROM user_types WHERE login_type = ? LIMIT 1",
+          [userType]
+        );
+      if (userTypeRows.length === 0) {
+        return res.status(400).json({
+          status: "error_invalid_user_type",
+          message: "Invalid user type provided",
+        });
+      }
+      const user_type_id = userTypeRows[0].login_type_id;
+      const [existingUserRows] = await pool
+        .promise()
+        .query("SELECT id FROM users WHERE mobile = ? LIMIT 1", [mobile]);
+      if (existingUserRows.length > 0) {
+        return res.status(409).json({
+          status: "error_user_exists",
+          message: "User already exists",
+        });
+      }
+      const created_date = moment().format("YYYY-MM-DD");
+      const created_time = moment().format("HH:mm:ss");
+      const insertUserQuery = `
+        INSERT INTO users 
+        (user_type, name, mobile, city, email, created_date, created_time,gst_number,rera_number,company_name)
+        VALUES (?, ?, ?, ?, ?, ?, ?,? ,?,?)
+      `;
+      const [insertResult] = await pool
+        .promise()
+        .query(insertUserQuery, [
+          user_type_id,
+          name,
+          mobile,
+          city,
           email,
           created_date,
           created_time,
