@@ -9,6 +9,7 @@ const upload = multer({
   limits: { fileSize: 10 * 1024 * 1024 }, // Limit to 5MB
 }).single("photo");
 const userController = require("../controllers/usersController");
+const updateLastActive = require("../middleware/updateLoginActivity");
 
 router.get("/getAllUsersCount", userController.getAllUsersCount);
 router.get("/getAllEmployeeCount", userController.getAllEmployeeCount);
@@ -35,7 +36,11 @@ router.get("/getProfile", userController.getProfileData);
 router.get("/getEmpProfile", userController.getEmpProfileData);
 router.post("/uploadUserImage", userController.uploadUserImage);
 router.post("/uploadEmpImage", userController.uploadEmpImage);
-router.post("/insertToken", userController.insertOrUpdateToken);
+router.post(
+  "/insertToken",
+  updateLastActive,
+  userController.insertOrUpdateToken
+);
 router.get("/getAllTokens", userController.getTokens);
 router.post("/notify-user", userController.sendToSingleUser);
 router.post("/notify-all", userController.sendToAllUsers);

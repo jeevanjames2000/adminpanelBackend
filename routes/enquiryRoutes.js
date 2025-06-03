@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const updateLastActive = require("../middleware/updateLoginActivity");
 
 const enquiryController = require("../controllers/enquireController");
 router.get("/getAllEnquiries", enquiryController.getAllEnquiries);
@@ -9,14 +10,23 @@ router.get(
   enquiryController.getAllContactSellersByFilter
 );
 router.get("/getUserContactSellers", enquiryController.getUserContactSellers);
-router.post("/postEnquiry", enquiryController.postEnquiry);
-router.post("/contactSeller", enquiryController.contactSeller);
-router.post("/scheduleVisit", enquiryController.scheduleVisit);
-router.post("/contactUs", enquiryController.contactUs);
+router.post("/postEnquiry", updateLastActive, enquiryController.postEnquiry);
+router.post(
+  "/contactSeller",
+  updateLastActive,
+  enquiryController.contactSeller
+);
+router.post(
+  "/scheduleVisit",
+  updateLastActive,
+  enquiryController.scheduleVisit
+);
+router.post("/contactUs", updateLastActive, enquiryController.contactUs);
 router.post("/sendLeadTextMessage", enquiryController.sendLeadTextMessage);
-router.post("/userActivity", enquiryController.userActivity);
+router.post("/userActivity", updateLastActive, enquiryController.userActivity);
 router.get(
   "/getMostSearchedLocations",
   enquiryController.getMostSearchedLocations
 );
+router.get("/getCurrentActiveUsers", enquiryController.getCurrentActiveUsers);
 module.exports = router;

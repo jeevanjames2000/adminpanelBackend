@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const updateLastActive = require("../middleware/updateLoginActivity");
 
 const listingController = require("../controllers/listingsController");
 
@@ -29,7 +30,11 @@ router.get(
 router.get("/getHighDemandProjects", listingController.getHighDemandProjects);
 router.get("/getAllPropertyViews", listingController.getAllPropertyViews);
 router.post("/updateListing", listingController.updateListing);
-router.post("/propertyViewed", listingController.propertyViewed);
+router.post(
+  "/propertyViewed",
+  updateLastActive,
+  listingController.propertyViewed
+);
 router.post("/updateStatus", listingController.updateStatus);
 router.delete("/deleteListing", listingController.deleteListing);
 module.exports = router;

@@ -408,4 +408,39 @@ module.exports = {
       });
     }
   },
+  getCurrentActiveUsers: (req, res) => {
+    const query = `
+    SELECT 
+      u.id AS user_id,
+      u.name,
+      u.photo,
+      u.email,
+      u.created_date,
+      u.created_time,
+      u.city,
+      u.subscription_status,
+      u.subscription_package,
+      u.subscription_start_date,
+      u.subscription_expiry_date,
+      us.last_active,
+      us.device_type,
+      us.ip_address,
+      us.mobile
+    FROM user_sessions us
+    INNER JOIN users u ON us.user_id = u.id
+    WHERE us.is_online = 1
+  `;
+
+    pool.query(query, (err, results) => {
+      if (err) {
+        console.error("Error fetching active users with details:", err);
+        return res.status(500).json({ error: "Database error" });
+      }
+
+      res.json({
+        count: results.length,
+        activeUsers: results,
+      });
+    });
+  },
 };

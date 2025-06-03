@@ -6,6 +6,8 @@ const { default: axios } = require("axios");
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
+const logger = require("../logger");
+
 const sendWhatsappLeads = async (name, mobile) => {
   const payload = {
     channelId: "67a9e14542596631a8cfc87b",
@@ -587,6 +589,10 @@ module.exports = {
       payment_status,
     } = req.body;
     if (!user_id || !subscription_package || !payment_status) {
+      logger.logError({
+        message: "Missing userId or package",
+        requestBody: req.body,
+      });
       return res.status(400).json({
         success: false,
         message:
@@ -621,9 +627,21 @@ module.exports = {
       if (finalPaymentStatus === "cancelled") {
         finalPaymentStatus = "cancelled";
         subscription_status = "inactive";
+        logger.logCancelled({
+          message: "User Cancelled Payment",
+          error: "User Cancelled Payment",
+          user_id,
+          mappedPackageName,
+        });
       } else if (finalPaymentStatus === "failed") {
         finalPaymentStatus = "failed";
         subscription_status = "inactive";
+        logger.logFailed({
+          message: "Payment Failed",
+          error: "Payment Failed",
+          user_id,
+          mappedPackageName,
+        });
       } else if (finalPaymentStatus === "processing") {
         const secret = process.env.RAZORPAY_SECRET;
         if (!secret) {
@@ -776,23 +794,23 @@ module.exports = {
           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             user_id,
-            user_type,
-            city,
-            name,
-            mobile,
-            email,
+            user_type || null,
+            city || null,
+            name || null,
+            mobile || null,
+            email || null,
             mappedPackageName,
             subscription_start_date,
             subscription_expiry_date,
             subscription_status,
             finalPaymentStatus,
             payment_amount || 0,
-            finalPaymentReference,
+            finalPaymentReference || null,
             payment_mode || null,
             payment_gateway || null,
             razorpay_order_id || null,
-            finalRazorpayPaymentId,
-            finalRazorpaySignature,
+            finalRazorpayPaymentId || null,
+            finalRazorpaySignature || null,
             actual_amount || 0,
             gst || 0,
             sgst || 0,
@@ -807,6 +825,17 @@ module.exports = {
         if (invoice_url) {
           await sendInvoice(name, mobile, payment_amount, invoice_url);
         }
+        logger.logSuccess({
+          message: "Subscription and payment recorded successfully",
+          user_id,
+          user_type,
+          mappedPackageName,
+          status: payment_status,
+          amount: payment_amount,
+          payment_reference,
+          payment_mode,
+          payment_gateway,
+        });
         res.json({
           success: finalPaymentStatus === "processing",
           message:
@@ -819,6 +848,12 @@ module.exports = {
       } catch (err) {
         await pool.promise().query("ROLLBACK");
         console.error("Error in verifyPayment:", err);
+        logger.logError({
+          message: "Server error during payment verification",
+          error: err,
+          user_id,
+          mappedPackageName,
+        });
         res.status(500).json({
           success: false,
           message: "Server error during payment verification",

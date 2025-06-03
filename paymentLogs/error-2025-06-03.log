@@ -1,0 +1,4 @@
+[15:18:38] {"message":"Server error during payment verification","error":{"message":"Bind parameters must not contain undefined. To pass SQL NULL specify JS null"},"user_id":271,"mappedPackageName":"prime"}
+[15:19:23] {"message":"Server error during payment verification","error":{"message":"Bind parameters must not contain undefined. To pass SQL NULL specify JS null"},"user_id":271,"mappedPackageName":"basic"}
+[15:21:34] {"message":"Server error during payment verification","error":{"message":"Bind parameters must not contain undefined. To pass SQL NULL specify JS null"},"user_id":271,"mappedPackageName":"basic"}
+[15:26:04] {"message":"Server error during payment verification","error":{},"user_id":271,"mappedPackageName":"prime"}

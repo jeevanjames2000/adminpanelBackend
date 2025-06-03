@@ -1,0 +1,1 @@
+[15:27:04] {"message":"Subscription and payment recorded successfully","user_id":271,"user_type":6,"mappedPackageName":"basic","status":"cancelled","amount":"6499.00","payment_reference":null,"payment_mode":"online","payment_gateway":"Razorpay"}
