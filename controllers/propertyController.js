@@ -1,6 +1,5 @@
 const pool = require("../config/db");
 const moment = require("moment");
-
 module.exports = {
   addBasicdetails: (req, res) => {
     const {
@@ -11,120 +10,108 @@ module.exports = {
       unique_property_id,
       user_type,
     } = req.body;
-
     if (!user_id) {
-      return res.status(200).json({
+      return res.status(400).json({
         status: "error",
         message: "User id is required, please login and try again",
       });
     }
-
-    const updated_date = moment().format("YYYY-MM-DD"); // only date
-
-    if (unique_property_id) {
-      pool.query(
-        "SELECT * FROM properties WHERE user_id = ? AND unique_property_id = ?",
-        [user_id, unique_property_id],
-        (err, rows) => {
-          if (err) {
-            console.error(err);
-            return res
-              .status(500)
-              .json({ status: "error", message: err.message });
-          }
-
-          const property = rows[0];
-
-          if (!property) {
+    const updated_date = moment().format("YYYY-MM-DD");
+    const checkPropertyQuery = `
+      SELECT * FROM properties WHERE user_id = ? AND unique_property_id = ?
+    `;
+    const updatePropertyQuery = `
+      UPDATE properties SET 
+        property_in = ?, 
+        property_for = ?, 
+        transaction_type = ?, 
+        user_type = ?, 
+        updated_date = ? 
+      WHERE id = ?
+    `;
+    const insertPropertyQuery = `
+      INSERT INTO properties (
+        user_id, unique_property_id, property_in, property_for, 
+        transaction_type, user_type, updated_date
+      ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    `;
+    const uniqueId =
+      unique_property_id || "MO-" + Math.floor(100000 + Math.random() * 900000);
+    pool.query(checkPropertyQuery, [user_id, uniqueId], (err, rows) => {
+      if (err) {
+        console.error("Check property error:", err);
+        return res.status(500).json({ status: "error", message: err.message });
+      }
+      const property = rows[0];
+      if (property) {
+        pool.query(
+          updatePropertyQuery,
+          [
+            property_in,
+            property_for,
+            transaction_type,
+            user_type,
+            updated_date,
+            property.id,
+          ],
+          (updateErr) => {
+            if (updateErr) {
+              console.error("Update property error:", updateErr);
+              return res
+                .status(500)
+                .json({ status: "error", message: updateErr.message });
+            }
             return res.status(200).json({
-              status: "error",
-              message: "Property not found",
+              status: "success",
+              message: "Property details updated successfully",
+              property: {
+                property_id: property.id,
+                unique_property_id: property.unique_property_id,
+                property_in,
+                property_for,
+                transaction_type,
+                user_type,
+                updated_date,
+              },
             });
           }
-
-          pool.query(
-            `UPDATE properties SET 
-              property_in = ?, 
-              property_for = ?, 
-              transaction_type = ?, 
-              user_type = ?, 
-              updated_date = ? 
-            WHERE id = ?`,
-            [
-              property_in,
-              property_for,
-              transaction_type,
-              user_type,
-              updated_date,
-              property.id,
-            ],
-            (err2) => {
-              if (err2) {
-                console.error(err2);
-                return res
-                  .status(500)
-                  .json({ status: "error", message: err2.message });
-              }
-
-              return res.status(200).json({
-                status: "success",
-                message: "Property details updated successfully",
-                property: {
-                  property_id: property.id,
-                  unique_property_id: property.unique_property_id,
-                  property_in,
-                  property_for,
-                  transaction_type,
-                  user_type,
-                  updated_date,
-                },
-              });
+        );
+      } else {
+        pool.query(
+          insertPropertyQuery,
+          [
+            user_id,
+            uniqueId,
+            property_in,
+            property_for,
+            transaction_type,
+            user_type,
+            updated_date,
+          ],
+          (insertErr, insertResult) => {
+            if (insertErr) {
+              console.error("Insert property error:", insertErr);
+              return res
+                .status(500)
+                .json({ status: "error", message: insertErr.message });
             }
-          );
-        }
-      );
-    } else {
-      const uniquepropertyid =
-        "MO-" + Math.floor(100000 + Math.random() * 900000);
-
-      pool.query(
-        `INSERT INTO properties (
-          user_id, unique_property_id, property_in, property_for, 
-          transaction_type, user_type, updated_date
-        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [
-          user_id,
-          uniquepropertyid,
-          property_in,
-          property_for,
-          transaction_type,
-          user_type,
-          updated_date,
-        ],
-        (err3, insertResult) => {
-          if (err3) {
-            console.error(err3);
-            return res
-              .status(500)
-              .json({ status: "error", message: err3.message });
+            return res.status(200).json({
+              status: "success",
+              message: "Property details added successfully",
+              property: {
+                property_id: insertResult.insertId,
+                unique_property_id: uniqueId,
+                property_in,
+                property_for,
+                transaction_type,
+                user_type,
+                updated_date,
+              },
+            });
           }
-
-          return res.status(200).json({
-            status: "success",
-            message: "Property details added successfully",
-            property: {
-              property_id: insertResult.insertId,
-              unique_property_id: uniquepropertyid,
-              property_in,
-              property_for,
-              transaction_type,
-              user_type,
-              updated_date,
-            },
-          });
-        }
-      );
-    }
+        );
+      }
+    });
   },
   addPropertyDetails: (req, res) => {},
   addAddressDetails: (req, res) => {},
