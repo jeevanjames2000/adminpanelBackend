@@ -29,4 +29,5 @@ router.get(
   enquiryController.getMostSearchedLocations
 );
 router.get("/getCurrentActiveUsers", enquiryController.getCurrentActiveUsers);
+router.get("/getAllEnqueriesCount", enquiryController.getAllEnqueriesCount);
 module.exports = router;

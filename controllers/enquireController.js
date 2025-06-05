@@ -155,7 +155,6 @@ module.exports = {
     const created_date = moment().format("YYYY-MM-DD");
     const updated_date = moment().format("YYYY-MM-DD");
     const created_time = moment().format("HH:mm:ss");
-
     const query = `
     INSERT INTO contact_seller 
     (user_id, unique_property_id, fullname, email, mobile, created_date, updated_date,created_time) 
@@ -430,17 +429,60 @@ module.exports = {
     INNER JOIN users u ON us.user_id = u.id
     WHERE us.is_online = 1
   `;
-
     pool.query(query, (err, results) => {
       if (err) {
         console.error("Error fetching active users with details:", err);
         return res.status(500).json({ error: "Database error" });
       }
-
       res.json({
         count: results.length,
         activeUsers: results,
       });
     });
+  },
+  getAllEnqueriesCount: async (req, res) => {
+    const { user_id } = req.query;
+    if (!user_id) {
+      return res.status(400).json({ message: "User ID required" });
+    }
+    try {
+      const [properties] = await pool
+        .promise()
+        .query(
+          `SELECT unique_property_id FROM properties WHERE user_id = ? AND property_name IS NOT NULL`,
+          [user_id]
+        );
+      if (!properties.length) {
+        return res
+          .status(200)
+          .json({ total_enquiries: 0, total_favourites: 0 });
+      }
+      const propertyIds = properties.map((p) => p.unique_property_id);
+      if (!propertyIds.length) {
+        return res
+          .status(200)
+          .json({ total_enquiries: 0, total_favourites: 0 });
+      }
+      const placeholders = propertyIds.map(() => "?").join(",");
+      const [enquiries] = await pool
+        .promise()
+        .query(
+          `SELECT COUNT(*) AS total_enquiries FROM contact_seller WHERE unique_property_id IN (${placeholders})`,
+          propertyIds
+        );
+      const [favourites] = await pool
+        .promise()
+        .query(
+          `SELECT COUNT(*) AS total_favourites FROM favourites WHERE unique_property_id IN (${placeholders})`,
+          propertyIds
+        );
+      res.status(200).json({
+        total_enquiries: enquiries[0].total_enquiries,
+        total_favourites: favourites[0].total_favourites,
+      });
+    } catch (error) {
+      console.error("Error fetching enquiries/favourites:", error);
+      res.status(500).json({ error: "Internal Server Error" });
+    }
   },
 };

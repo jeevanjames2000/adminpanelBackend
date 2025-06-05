@@ -13,4 +13,6 @@ router.post("/loginnew", authController.AuthLoginNew);
 router.post("/registernew", authController.AuthRegisterNew);
 router.post("/register", authController.AuthRegister);
 router.post("/loginActivity", updateLastActive, authController.LoginActivity);
+router.get("/sendOtpSellers", authController.sendOtpSellers);
+router.post("/verifyOtpSellers", authController.verifyOtpSellers);
 module.exports = router;

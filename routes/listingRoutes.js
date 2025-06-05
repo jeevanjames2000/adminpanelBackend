@@ -7,6 +7,8 @@ const listingController = require("../controllers/listingsController");
 router.get("/getAllListings", listingController.getAllProperties);
 router.get("/getSinleProperty", listingController.getSingleProperty);
 router.get("/getAllPropertiesByType", listingController.getAllPropertiesByType);
+router.get("/getAllListingsByType", listingController.getAllListingsByType);
+
 router.get("/getListingsByLimit", listingController.getListingsByLimit);
 router.get("/getListingsFilters", listingController.getListingsFilters);
 router.get("/getAllLeads", listingController.getAllLeadsByFilter);

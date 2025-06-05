@@ -239,7 +239,6 @@ module.exports = {
     let countSql = "SELECT COUNT(*) AS count FROM employees";
     let whereClauses = [];
     let values = [];
-
     if (user_type) {
       whereClauses.push("user_type = ?");
       values.push(user_type);
@@ -252,30 +251,23 @@ module.exports = {
       whereClauses.push("(name LIKE ? OR mobile LIKE ?)");
       values.push(`%${search}%`, `%${search}%`);
     }
-
     if (whereClauses.length > 0) {
       const whereStr = " WHERE " + whereClauses.join(" AND ");
       sql += whereStr;
       countSql += whereStr;
     }
-
     pool.query(countSql, values, (err, countResult) => {
       if (err) return res.status(500).json({ error: "Database query failed" });
       const userCount = countResult[0].count;
-
       pool.query(sql, values, async (err, employees) => {
         if (err)
           return res.status(500).json({ error: "Database query failed" });
-
         try {
           const employeeIds = employees.map((emp) => emp.id);
           if (employeeIds.length === 0) {
             return res.status(200).json({ success: true, count: 0, data: [] });
           }
-
           const empPlaceholders = employeeIds.map(() => "?").join(",");
-
-          // 1. Get assigned users
           const [userErr, users] = await new Promise((resolve) => {
             const userSql = `
             SELECT id, user_type, photo, name, mobile, email, city, address,
@@ -289,8 +281,6 @@ module.exports = {
             );
           });
           if (userErr) throw userErr;
-
-          // 2. Get activity logs
           const [activityErr, activityLogs] = await new Promise((resolve) => {
             const activitySql = `
             SELECT employee_id, created_date
@@ -303,33 +293,25 @@ module.exports = {
             );
           });
           if (activityErr) throw activityErr;
-
-          // 3. Create map of latest activity per employee
           const latestActivityMap = {};
           for (const log of activityLogs) {
             if (!latestActivityMap[log.employee_id]) {
               latestActivityMap[log.employee_id] = log.created_date;
             }
           }
-
-          // 4. Build employeeUserMap with created_date added
           const employeeUserMap = {};
           users.forEach((user) => {
             const empId = user.assigned_emp_id;
             const activityDate = latestActivityMap[empId]
               ? moment(latestActivityMap[empId]).format("YYYY-MM-DD")
               : null;
-
             const userWithActivity = {
               ...user,
               created_date: activityDate,
             };
-
             if (!employeeUserMap[empId]) employeeUserMap[empId] = [];
             employeeUserMap[empId].push(userWithActivity);
           });
-
-          // 5. Map enriched employees
           const enrichedEmployees = employees.map((emp) => ({
             ...emp,
             created_date: emp.created_date
@@ -340,7 +322,6 @@ module.exports = {
               : null,
             assigned_users: employeeUserMap[emp.id] || [],
           }));
-
           res.status(200).json({
             success: true,
             count: userCount,
@@ -482,7 +463,6 @@ module.exports = {
                 message: "User with the same name and user_type already exists",
               });
             }
-
             const currentDate = new Date().toISOString().slice(0, 10);
             const currentTime = new Date().toTimeString().slice(0, 8);
             const insertQuery = `
@@ -1185,5 +1165,136 @@ module.exports = {
       }
       res.status(200).json(results);
     });
+  },
+  getUserCompleteActivity: async (req, res) => {
+    const { user_type, user_id, name, search } = req.query;
+    let baseQuery = "SELECT * FROM users";
+    let countQuery = "SELECT COUNT(*) AS count FROM users";
+    const whereClauses = [];
+    const values = [];
+    if (user_type) {
+      whereClauses.push("user_type = ?");
+      values.push(user_type);
+    }
+    if (name) {
+      whereClauses.push("name LIKE ?");
+      values.push(`%${name}%`);
+    }
+    if (user_id) {
+      whereClauses.push("id = ?");
+      values.push(user_id);
+    }
+    if (search) {
+      whereClauses.push("(name LIKE ? OR mobile LIKE ?)");
+      values.push(`%${search}%`, `%${search}%`);
+    }
+    const whereStr = whereClauses.length
+      ? " WHERE " + whereClauses.join(" AND ")
+      : "";
+    baseQuery += whereStr;
+    countQuery += whereStr;
+    try {
+      const [countResult] = await pool.promise().query(countQuery, values);
+      const userCount = countResult[0].count;
+      const [users] = await pool.promise().query(baseQuery, values);
+      const userIds = users.map((user) => user.id);
+      if (userIds.length === 0) {
+        return res.status(200).json({ success: true, count: 0, data: [] });
+      }
+      const placeholders = userIds.map(() => "?").join(",");
+      const searchParams = [...userIds];
+      if (search) searchParams.push(`%${search}%`, `%${search}%`);
+      const searchQuery = `
+        SELECT sp.*, p.property_name,p.city_id, p.location_id, p.google_address 
+        FROM searched_properties sp 
+        LEFT JOIN properties p ON sp.property_id = p.unique_property_id 
+        WHERE sp.user_id IN (${placeholders})
+          AND sp.property_id IS NOT NULL 
+          AND sp.property_id != '' 
+          AND sp.property_id != '0'
+          ${
+            search
+              ? "AND (p.property_name LIKE ? OR p.google_address LIKE ?)"
+              : ""
+          }
+      `;
+      const contactQuery = `
+        SELECT cs.*, p.property_name,p.city_id, p.location_id, p.google_address 
+        FROM contact_seller cs 
+        LEFT JOIN properties p ON cs.unique_property_id = p.unique_property_id 
+        WHERE cs.user_id IN (${placeholders})
+      `;
+      const viewsQuery = `
+        SELECT pv.*, p.property_name, p.city_id,p.location_id, p.google_address 
+        FROM property_views pv 
+        LEFT JOIN properties p ON pv.property_id = p.unique_property_id 
+        WHERE pv.user_id IN (${placeholders})
+      `;
+      const favouritesQuery = `
+        SELECT f.User_user_id,f.userName,f.userMobile,f.userEmail,f.unique_property_id,f.property_name,f.sub_type,f.property_for,f.city_id,f.location_id,f.property_cost,f.property_in,f.searched_on_date,f.searched_on_time, p.property_name, p.location_id, p.google_address 
+        FROM favourites f 
+        LEFT JOIN properties p ON f.unique_property_id = p.unique_property_id 
+        WHERE f.User_user_id IN (${placeholders})
+      `;
+      const [[searched], [contacted], [viewed], [favourites]] =
+        await Promise.all([
+          pool.promise().query(searchQuery, searchParams),
+          pool.promise().query(contactQuery, userIds),
+          pool.promise().query(viewsQuery, userIds),
+          pool.promise().query(favouritesQuery, userIds),
+        ]);
+      const groupByUser = (data) =>
+        data.reduce((acc, item) => {
+          if (
+            !acc[
+              item.user_id && item.user_id !== 0
+                ? item.user_id
+                : item.User_user_id
+            ]
+          ) {
+            acc[
+              item.user_id && item.user_id !== 0
+                ? item.user_id
+                : item.User_user_id
+            ] = [];
+          }
+          acc[
+            item.user_id && item.user_id !== 0
+              ? item.user_id
+              : item.User_user_id
+          ].push(item);
+          return acc;
+        }, {});
+      const groupedSearches = groupByUser(searched);
+      const groupedContacts = groupByUser(contacted);
+      const groupedViews = groupByUser(viewed);
+      const enrichedUsers = users.map((user) => {
+        const activities = [];
+        (favourites || []).forEach((item) => {
+          activities.push({ ...item, activityType: "Liked" });
+        });
+        (groupedSearches[user.id] || []).forEach((item) => {
+          activities.push({ ...item, activityType: "Searched" });
+        });
+        (groupedContacts[user.id] || []).forEach((item) => {
+          activities.push({ ...item, activityType: "Contacted" });
+        });
+        (groupedViews[user.id] || []).forEach((item) => {
+          activities.push({ ...item, activityType: "Property Viewed" });
+        });
+        return {
+          ...user,
+          userActivity: activities,
+        };
+      });
+      res.status(200).json({
+        success: true,
+        count: userCount,
+        data: enrichedUsers,
+      });
+    } catch (err) {
+      console.error("Error in getUserCompleteActivity:", err);
+      res.status(500).json({ error: "Internal Server Error" });
+    }
   },
 };

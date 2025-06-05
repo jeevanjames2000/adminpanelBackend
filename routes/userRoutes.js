@@ -50,4 +50,6 @@ router.get(
 );
 router.post("/createShorts", userController.createShorts);
 router.get("/getAllShorts", userController.getAllShorts);
+router.get("/getUserCompleteActivity", userController.getUserCompleteActivity);
+
 module.exports = router;

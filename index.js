@@ -13,7 +13,7 @@ const adRoutes = require("./routes/adsRoutes");
 const packages = require("./routes/packageRoute");
 const paymentRoutes = require("./routes/paymentRoutes");
 const useragent = require("express-useragent");
-require("./cronJobs");
+// require("./cronJobs");
 const app = express();
 const path = require("path");
 app.use(useragent.express());
