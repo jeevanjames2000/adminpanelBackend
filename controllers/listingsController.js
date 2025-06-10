@@ -345,8 +345,6 @@ module.exports = {
                   updated_date: formattedDate,
                   updated_time: formattedTime,
                   user: { name, email, mobile, photo, user_type },
-                  enquiries: enquiriesMap[unique_property_id] || 0,
-                  favourites: favouritesMap[unique_property_id] || 0,
                 };
               });
 
@@ -581,7 +579,6 @@ module.exports = {
                 };
               });
 
-             
               res.status(200).json({
                 total_count,
                 current_page: pageNumber,

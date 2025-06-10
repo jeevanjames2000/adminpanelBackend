@@ -485,4 +485,150 @@ module.exports = {
       res.status(500).json({ error: "Internal Server Error" });
     }
   },
+  getPropertyEnquiries: (req, res) => {
+    const { user_id } = req.query;
+    if (!user_id) {
+      return res.status(400).json({ error: "user_id is required" });
+    }
+    const query = `
+      SELECT 
+        cs.*, 
+        u.id AS user_id, 
+        u.name AS user_name, 
+        u.email AS user_email, 
+        u.mobile AS user_mobile,
+        p.property_name AS property_name,
+        p.sub_type,p.property_for,p.property_type,
+        p.property_in,p.state_id,p.city_id,p.location_id,
+        p.property_cost,p.bedrooms,p.bathroom,
+        p.facing,p.car_parking,p.bike_parking,p.description,
+        p.image,p.google_address
+      FROM contact_seller cs
+      LEFT JOIN users u ON cs.user_id = u.id
+      LEFT JOIN properties p ON cs.unique_property_id = p.unique_property_id
+      WHERE p.user_id = ?
+      ORDER BY cs.id DESC
+    `;
+    pool.query(query, [user_id], (err, results) => {
+      if (err) {
+        console.error(
+          "Error fetching contact sellers with user and property details:",
+          err
+        );
+        return res.status(500).json({ error: "Database error" });
+      }
+      if (results.length === 0) {
+        return res
+          .status(404)
+          .json({ message: "No contact sellers found for this user" });
+      }
+      const count = results.length;
+      const formattedResults = results.map((row) => {
+        const {
+          user_id,
+          user_name,
+          user_email,
+          user_mobile,
+          property_name,
+          ...contact
+        } = row;
+        return {
+          ...contact,
+          property_name,
+          userDetails: {
+            id: user_id,
+            name: user_name,
+            email: user_email,
+            mobile: user_mobile,
+          },
+        };
+      });
+      return res.status(200).json({ count, formattedResults });
+    });
+  },
+  getAllFavouritesByUserId: async (req, res) => {
+    const { user_id } = req.query;
+    if (!user_id) {
+      return res.status(400).json({ error: "user_id is required" });
+    }
+    try {
+      const [properties] = await pool
+        .promise()
+        .query(`SELECT unique_property_id FROM properties WHERE user_id = ?`, [
+          user_id,
+        ]);
+      if (!properties.length) {
+        return res.status(200).json({ count: 0, favourites: [] });
+      }
+      const propertyIds = properties.map((p) => p.unique_property_id);
+      const placeholders = propertyIds.map(() => "?").join(",");
+      const [favourites] = await pool.promise().query(
+        `
+          SELECT 
+            f.*, 
+            u.id AS user_id, 
+            u.name AS user_name, 
+            u.email AS user_email, 
+            u.mobile AS user_mobile,
+            u.subscription_package,
+            u.state,u.city,u.location,u.address,u.pincode,
+            u.created_userID,u.assigned_emp_id,u.assigned_emp_type,u.assigned_emp_name,
+            p.property_name
+          FROM favourites f
+          LEFT JOIN users u ON f.User_user_id = u.id
+          LEFT JOIN properties p ON f.unique_property_id = p.unique_property_id
+          WHERE f.unique_property_id IN (${placeholders})
+          ORDER BY f.id DESC
+          `,
+        propertyIds
+      );
+      const formattedResults = favourites.map((row) => {
+        const {
+          property_name,
+          user_id,
+          user_name,
+          user_email,
+          user_mobile,
+          state,
+          city,
+          location,
+          address,
+          pincode,
+          assigned_id,
+          created_userID,
+          assigned_emp_id,
+          assigned_emp_type,
+          assigned_emp_name,
+          ...favourite
+        } = row;
+        return {
+          property_name,
+          ...favourite,
+          userDetails: {
+            id: user_id,
+            name: user_name,
+            email: user_email,
+            mobile: user_mobile,
+            city,
+            state,
+            location,
+            address,
+            pincode,
+            assigned_id,
+            created_userID,
+            assigned_emp_id,
+            assigned_emp_type,
+            assigned_emp_name,
+          },
+        };
+      });
+      return res.status(200).json({
+        count: favourites.length,
+        favourites: formattedResults,
+      });
+    } catch (err) {
+      console.error("Error fetching favourites:", err);
+      return res.status(500).json({ error: "Internal Server Error" });
+    }
+  },
 };

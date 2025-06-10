@@ -30,4 +30,9 @@ router.get(
 );
 router.get("/getCurrentActiveUsers", enquiryController.getCurrentActiveUsers);
 router.get("/getAllEnqueriesCount", enquiryController.getAllEnqueriesCount);
+router.get("/getPropertyEnquiries", enquiryController.getPropertyEnquiries);
+router.get(
+  "/getAllFavouritesByUserId",
+  enquiryController.getAllFavouritesByUserId
+);
 module.exports = router;
