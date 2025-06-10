@@ -461,7 +461,7 @@ module.exports = {
       } else if (priceFilter === "Price: High to Low") {
         orderBy = "ORDER BY CAST(p.property_cost AS DECIMAL) DESC";
       }
-      const limit = 150;
+      const limit = 50;
       const pageNumber = parseInt(page) || 1;
       const offset = (pageNumber - 1) * limit;
       const countQuery = `
