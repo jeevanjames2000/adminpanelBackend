@@ -152,7 +152,7 @@ module.exports = {
         page = 1,
         user_id,
       } = req.query;
-      const conditions = ["p.property_name IS NOT NULL"];
+      const conditions = [];
       const values = [];
       if (user_id) {
         conditions.push("p.user_id = ?");
@@ -381,7 +381,7 @@ module.exports = {
         page = 1,
         user_id,
       } = req.query;
-      const conditions = ["p.property_name IS NOT NULL"];
+      const conditions = [];
       const values = [];
       if (user_id) {
         conditions.push("p.user_id = ?");
