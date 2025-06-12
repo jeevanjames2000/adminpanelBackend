@@ -170,9 +170,6 @@ module.exports = {
       unique_property_id,
       total_places_around_property,
     } = req.body;
-
-    console.log("Raw facilities received:", total_places_around_property);
-
     if (!unique_property_id) {
       return res.status(400).json({
         status: "error",
@@ -180,7 +177,6 @@ module.exports = {
           "Basic details need to be filled first before adding property details",
       });
     }
-
     try {
       const [propertyRows] = await pool
         .promise()
@@ -194,36 +190,27 @@ module.exports = {
           message: "Property not found",
         });
       }
-
       const propertyId = propertyRows[0].id;
       const updated_date = moment().format("YYYY-MM-DD");
-
       const normalizeBoolean = (value) =>
         value === "Yes" || value === 1 ? 1 : 0;
-
       const parsePeriod = (value) => {
         if (!value) return 0;
         const match = value.toString().match(/(\d+)/);
         return match ? parseInt(match[1]) : 0;
       };
-
       const parseBrokerage = (value) => {
         if (!value || value === "None") return 0;
         const match = value.toString().match(/(\d+)/);
         return match ? parseInt(match[1]) : 0;
       };
-
       const normalizeNumber = (value) => parseInt(value) || 0;
-
       const parseBHK = (value) => {
         if (!value) return "0";
         return value.replace(" BHK", "");
       };
-
-      // Normalize facilities to a comma-separated string
       let formattedFacilities = null;
       if (typeof facilities === "string") {
-        // Clean and validate the comma-separated string
         formattedFacilities = facilities
           .split(",")
           .map((item) => item.trim())
@@ -231,15 +218,11 @@ module.exports = {
           .join(", ");
         if (!formattedFacilities) formattedFacilities = null;
       } else if (Array.isArray(facilities)) {
-        // Convert array to comma-separated string
         formattedFacilities = facilities
           .filter((item) => item && typeof item === "string")
           .join(", ");
         if (!formattedFacilities) formattedFacilities = null;
       }
-
-      console.log("Formatted facilities for DB:", formattedFacilities);
-
       const data = {
         sub_type: sub_type || null,
         land_sub_type: land_sub_type || null,
@@ -297,7 +280,6 @@ module.exports = {
         google_address: google_address || null,
         updated_date,
       };
-
       await pool.promise().query(
         `
         UPDATE properties SET
@@ -374,7 +356,6 @@ module.exports = {
           propertyId,
         ]
       );
-
       if (
         total_places_around_property &&
         Array.isArray(total_places_around_property)
@@ -394,7 +375,6 @@ module.exports = {
           }
         }
       }
-
       return res.status(200).json({
         status: "success",
         message: "Property details updated successfully",
@@ -409,96 +389,84 @@ module.exports = {
   },
   addAddressDetails: async (req, res) => {
     const {
-      city,
-      state,
+      city_id,
+      state_id,
       locality,
       unit_flat_house_no,
       floors,
       total_floors,
       unique_property_id,
       property_name,
-      location_id,
       plot_number,
+      google_address,
     } = req.body;
+    if (!unique_property_id) {
+      return res.status(400).json({
+        status: "error",
+        message:
+          "Property details need to be filled first before adding address details",
+      });
+    }
+    const conn = pool.promise();
     try {
-      if (!unique_property_id) {
-        return res.status(400).json({
-          status: "error",
-          message:
-            "Basic details need to be filled first before adding property details",
-        });
-      }
-      const [projects] = await pool
-        .promise()
-        .query(`SELECT project_name FROM projects`);
-      const projectExists = projects.find(
-        (p) => p.project_name === property_name
-      );
-      if (property_name && !projectExists) {
-        await pool
-          .promise()
-          .query(`INSERT INTO projects (project_name) VALUES (?)`, [
+      if (property_name) {
+        const [projects] = await conn.query(
+          `SELECT 1 FROM projects WHERE project_name = ? LIMIT 1`,
+          [property_name]
+        );
+        if (projects.length === 0) {
+          await conn.query(`INSERT INTO projects (project_name) VALUES (?)`, [
             property_name,
           ]);
+        }
       }
-      const [propertyRows] = await pool
-        .promise()
-        .query(`SELECT * FROM properties WHERE unique_property_id = ?`, [
-          unique_property_id,
-        ]);
-      if (!propertyRows.length) {
+      const [propertyRows] = await conn.query(
+        `SELECT id, unique_property_id FROM properties WHERE unique_property_id = ?`,
+        [unique_property_id]
+      );
+      if (propertyRows.length === 0) {
         return res.status(404).json({
           status: "error",
           message: "Property not found",
         });
       }
       const property = propertyRows[0];
-      const [cityRows] = await pool
-        .promise()
-        .query(`SELECT name FROM cities WHERE id = ?`, [city_id]);
-      const city_name = cityRows[0]?.name;
-      if (!city_name) {
-        return res
-          .status(404)
-          .json({ status: "error", message: "City not found" });
-      }
-      const updated_date = new Date().toISOString();
-      const google_address = JSON.stringify({ city_name, location_id });
-      await pool.promise().query(
+      const updated_date = moment().format("YYYY-MM-DD");
+      await conn.query(
         `UPDATE properties SET
-          city_id = ?, property_name = ?, unit_flat_house_no = ?, floors = ?, 
-          total_floors = ?, location_id = ?, plot_number = ?, updated_date = ?, google_address = ?
-         WHERE id = ?`,
+          city_id = ?, state_id = ?, property_name = ?, unit_flat_house_no = ?, floors = ?, 
+          total_floors = ?, plot_number = ?, updated_date = ?, google_address = ?,location_id = ?
+         WHERE unique_property_id = ?`,
         [
-          city_name,
+          city_id,
+          state_id,
           property_name,
           unit_flat_house_no,
           floors,
           total_floors,
-          location_id,
           plot_number?.toString(),
           updated_date,
           google_address,
-          property.id,
+          locality,
+          unique_property_id,
         ]
       );
-      const property_details = {
-        property_id: property.id,
-        unique_property_id: property.unique_property_id,
-        property_name,
-        city_id: city_name,
-        unit_flat_house_no,
-        floors,
-        total_floors,
-        location_id,
-        plot_number: plot_number?.toString(),
-        updated_date,
-        google_address,
-      };
       return res.status(200).json({
         status: "success",
-        message: "Property details updated successfully",
-        property: property_details,
+        message: "Address details updated successfully",
+        address: {
+          property_id: property.id,
+          unique_property_id: property.unique_property_id,
+          property_name,
+          city_id: city_id,
+          state_id: state_id,
+          unit_flat_house_no,
+          floors,
+          total_floors,
+          plot_number: plot_number?.toString(),
+          updated_date,
+          google_address,
+        },
       });
     } catch (error) {
       console.error("SQL Error:", error);

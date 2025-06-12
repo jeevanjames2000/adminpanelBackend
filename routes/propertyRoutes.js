@@ -5,5 +5,5 @@ const propertyController = require("../controllers/propertyController");
 
 router.post("/addBasicDetails", propertyController.addBasicdetails);
 router.post("/addPropertyDetails", propertyController.addPropertyDetails);
-
+router.post("/addAddressDetails", propertyController.addAddressDetails);
 module.exports = router;
