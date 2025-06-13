@@ -1,5 +1,8 @@
 const pool = require("../config/db");
 const moment = require("moment");
+const multiparty = require("multiparty");
+const fs = require("fs");
+const path = require("path");
 module.exports = {
   addBasicdetails: (req, res) => {
     const {
@@ -169,6 +172,7 @@ module.exports = {
       user_id,
       unique_property_id,
       total_places_around_property,
+      under_construction,
     } = req.body;
     if (!unique_property_id) {
       return res.status(400).json({
@@ -223,6 +227,11 @@ module.exports = {
           .join(", ");
         if (!formattedFacilities) formattedFacilities = null;
       }
+
+      const formattedUnderConstruction = under_construction
+        ? moment(under_construction).format("YYYY-MM-DD")
+        : null;
+
       const data = {
         sub_type: sub_type || null,
         land_sub_type: land_sub_type || null,
@@ -279,6 +288,7 @@ module.exports = {
         description: description || null,
         google_address: google_address || null,
         updated_date,
+        under_construction: formattedUnderConstruction,
       };
       await pool.promise().query(
         `
@@ -295,7 +305,7 @@ module.exports = {
           possession_status = ?, ownership_type = ?, facilities = ?, unit_flat_house_no = ?,
           plot_number = ?, business_types = ?, zone_types = ?, investor_property = ?,
           loan_facility = ?, facing = ?, car_parking = ?, bike_parking = ?,
-          open_parking = ?, servant_room = ?, description = ?, google_address = ?,
+          open_parking = ?, servant_room = ?, description = ?, google_address = ?,under_construction=?,
           updated_date = ?
         WHERE id = ?
         `,
@@ -352,6 +362,7 @@ module.exports = {
           data.servant_room,
           data.description,
           data.google_address,
+          data.under_construction,
           data.updated_date,
           propertyId,
         ]
@@ -476,5 +487,159 @@ module.exports = {
       });
     }
   },
-  getPropertyDetails: (req, res) => {},
+  addPropertyPhotosAndVideos: (req, res) => {
+    const form = new multiparty.Form();
+    form.parse(req, async (err, fields, files) => {
+      if (err) {
+        console.error("Form parsing error:", err);
+        return res.status(500).json({
+          status: "error",
+          message: "Error parsing the form data",
+        });
+      }
+      const conn = pool.promise();
+      try {
+        const userId = fields.user_id?.[0];
+        const uniquePropertyId = fields.unique_property_id?.[0];
+        const uploadedFiles = files.photo || [];
+        const imageIds = fields.image_id || [];
+        const selectedFeaturedImage = files.featured_image?.[0];
+        const uploadedVideoFiles = files.video || [];
+        const videoTypes = fields.video_type || [];
+        const videoIds = fields.video_id || [];
+        if (!userId || !uniquePropertyId) {
+          return res.status(400).json({
+            status: "error",
+            message: "Missing required fields: user_id or unique_property_id",
+          });
+        }
+        const [propertyRows] = await conn.query(
+          "SELECT id, unique_property_id FROM properties WHERE user_id = ? AND unique_property_id = ?",
+          [parseInt(userId), uniquePropertyId]
+        );
+        if (propertyRows.length === 0) {
+          return res.status(404).json({
+            status: "error",
+            message: "Property not found",
+          });
+        }
+        const property = propertyRows[0];
+        const uploadDir = path.join(__dirname, "..", "Uploads");
+        if (!fs.existsSync(uploadDir)) {
+          fs.mkdirSync(uploadDir, { recursive: true });
+        }
+        const uploadedFileNames = [];
+        let featuredImage = null;
+        for (let i = 0; i < uploadedFiles.length; i++) {
+          const file = uploadedFiles[i];
+          const tempPath = file.path;
+          const originalFilename = file.originalFilename;
+          const ext = path.extname(originalFilename).toLowerCase();
+          const allowedExtensions = [".jpg", ".jpeg", ".png", ".gif"];
+          if (!allowedExtensions.includes(ext)) {
+            fs.unlinkSync(tempPath);
+            continue;
+          }
+          const isFeaturedImage =
+            selectedFeaturedImage?.originalFilename === originalFilename;
+          const priority = isFeaturedImage ? 1 : 0;
+          if (imageIds[i] && imageIds[i] !== "null") {
+            try {
+              await conn.query(
+                "UPDATE properties_gallery SET priority = ?, uploaded_from_seller_panel = ? WHERE id = ?",
+                [priority, "Yes", parseInt(imageIds[i])]
+              );
+              if (isFeaturedImage) featuredImage = originalFilename;
+            } catch (error) {
+              console.error(`Failed to update image: ${error.message}`);
+            }
+            fs.unlinkSync(tempPath);
+            continue;
+          }
+          const timestamp = Date.now();
+          const newFilename = `${path.basename(
+            originalFilename,
+            ext
+          )}_${timestamp}${ext}`;
+          const targetPath = path.join(uploadDir, newFilename);
+          fs.copyFileSync(tempPath, targetPath);
+          fs.unlinkSync(tempPath);
+          try {
+            await conn.query(
+              "INSERT INTO properties_gallery (property_id, image, priority, uploaded_from_seller_panel) VALUES (?, ?, ?, ?)",
+              [property.unique_property_id, newFilename, priority, "Yes"]
+            );
+            uploadedFileNames.push(newFilename);
+            if (isFeaturedImage) featuredImage = newFilename;
+          } catch (error) {
+            console.error(`Failed to insert image: ${error.message}`);
+          }
+        }
+        for (let i = 0; i < uploadedVideoFiles.length; i++) {
+          const videoFile = uploadedVideoFiles[i];
+          const tempPath = videoFile.path;
+          const originalFilename = videoFile.originalFilename;
+          const ext = path.extname(originalFilename).toLowerCase();
+          const allowedExtensions = [".mp4", ".avi", ".mov", ".flv", ".wmv"];
+          if (!allowedExtensions.includes(ext)) {
+            fs.unlinkSync(tempPath);
+            continue;
+          }
+          if (videoIds[i] && videoIds[i] !== "undefined") {
+            fs.unlinkSync(tempPath);
+            continue;
+          }
+          const timestamp = Date.now();
+          const newFilename = `${path.basename(
+            originalFilename,
+            ext
+          )}_${timestamp}${ext}`;
+          const targetPath = path.join(uploadDir, newFilename);
+          fs.copyFileSync(tempPath, targetPath);
+          fs.unlinkSync(tempPath);
+          try {
+            await conn.query(
+              "INSERT INTO propertiesvideos (property_id, video_url, type, uploaded_from_seller_panel) VALUES (?, ?, ?, ?)",
+              [
+                property.unique_property_id,
+                newFilename,
+                videoTypes[i] || "video",
+                "Yes",
+              ]
+            );
+            uploadedFileNames.push(newFilename);
+          } catch (error) {
+            console.error(`Failed to insert video: ${error.message}`);
+          }
+        }
+        if (featuredImage) {
+          try {
+            const updated_date = moment().format("YYYY-MM-DD");
+            await conn.query(
+              "UPDATE properties SET image = ?, uploaded_from_seller_panel = ?, updated_date = ? WHERE unique_property_id = ?",
+              [featuredImage, "Yes", updated_date, uniquePropertyId]
+            );
+          } catch (error) {
+            console.error(`Failed to update property: ${error.message}`);
+          }
+        }
+        return res.status(200).json({
+          status: "success",
+          message: "Photos and videos uploaded successfully",
+          data: {
+            uploadedFiles: uploadedFileNames,
+            featuredImage,
+            unique_property_id: property.unique_property_id,
+            updated_date: moment().format("YYYY-MM-DD"),
+          },
+        });
+      } catch (error) {
+        console.error("SQL Error:", error);
+        return res.status(500).json({
+          status: "error",
+          message: error.message,
+        });
+      }
+    });
+  },
 };

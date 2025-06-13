@@ -105,32 +105,60 @@ module.exports = {
       return res.status(400).json({ error: "unique_property_id is required" });
     }
     try {
-      pool.query(
-        `SELECT * FROM properties WHERE unique_property_id = ? LIMIT 1`,
-        [unique_property_id],
-        (err, propertyResults) => {
-          if (err) {
-            console.error("Error fetching property:", err);
-            return res.status(500).json({ error: "Database query failed" });
-          }
-          if (propertyResults.length === 0) {
-            return res.status(404).json({ error: "Property not found" });
-          }
-          const property = propertyResults[0];
-          pool.query(
-            `SELECT * FROM around_this_property WHERE unique_property_id = ?`,
-            [unique_property_id],
-            (err2, aroundPlacesResults) => {
-              if (err2) {
-                console.error("Error fetching around places:", err2);
-                return res.status(500).json({ error: "Database query failed" });
-              }
-              property.around_places = aroundPlacesResults || [];
-              res.status(200).json({ property });
-            }
-          );
+      const query = `
+        SELECT 
+          p.*, 
+          u.name, u.email, u.mobile, u.photo, u.user_type
+        FROM properties p
+        LEFT JOIN users u ON p.user_id = u.id
+        WHERE p.unique_property_id = ?
+        LIMIT 1
+      `;
+      pool.query(query, [unique_property_id], (err, propertyResults) => {
+        if (err) {
+          console.error("Error fetching property:", err);
+          return res.status(500).json({ error: "Database query failed" });
         }
-      );
+        if (propertyResults.length === 0) {
+          return res.status(404).json({ error: "Property not found" });
+        }
+        const row = propertyResults[0];
+        const {
+          name,
+          email,
+          mobile,
+          photo,
+          user_type,
+          updated_date,
+          updated_time,
+          ...property
+        } = row;
+        const formattedDate = updated_date
+          ? moment(updated_date).format("YYYY-MM-DD")
+          : null;
+        const formattedTime = updated_time
+          ? moment(updated_time, "HH:mm:ss").format("HH:mm:ss")
+          : null;
+        const propertyWithUser = {
+          ...property,
+          unique_property_id,
+          updated_date: formattedDate,
+          updated_time: formattedTime,
+          user: { name, email, mobile, photo, user_type },
+        };
+        pool.query(
+          `SELECT * FROM around_this_property WHERE unique_property_id = ?`,
+          [unique_property_id],
+          (err2, aroundPlacesResults) => {
+            if (err2) {
+              console.error("Error fetching around places:", err2);
+              return res.status(500).json({ error: "Database query failed" });
+            }
+            propertyWithUser.around_places = aroundPlacesResults || [];
+            res.status(200).json({ property: propertyWithUser });
+          }
+        );
+      });
     } catch (error) {
       console.error("Server error:", error);
       res.status(500).json({ error: "Internal server error" });
@@ -266,7 +294,6 @@ module.exports = {
             return res.status(500).json({ error: "Database query failed" });
           }
           const propertyIds = results.map((row) => row.unique_property_id);
-
           if (propertyIds.length === 0) {
             return res.status(200).json({
               total_count,
@@ -276,23 +303,19 @@ module.exports = {
               properties: [],
             });
           }
-
           const placeholders = propertyIds.map(() => "?").join(",");
-
           const enquiryQuery = `
             SELECT unique_property_id, COUNT(*) AS enquiries
             FROM contact_seller
             WHERE unique_property_id IN (${placeholders})
             GROUP BY unique_property_id
           `;
-
           const favouriteQuery = `
             SELECT unique_property_id, COUNT(*) AS favourites
             FROM favourites
             WHERE unique_property_id IN (${placeholders})
             GROUP BY unique_property_id
           `;
-
           pool.query(enquiryQuery, propertyIds, (err, enquiryResults) => {
             if (err) {
               console.error("Enquiries Fetch Error:", err);
@@ -300,7 +323,6 @@ module.exports = {
                 .status(500)
                 .json({ error: "Failed to fetch enquiries" });
             }
-
             pool.query(favouriteQuery, propertyIds, (err, favouriteResults) => {
               if (err) {
                 console.error("Favourites Fetch Error:", err);
@@ -308,7 +330,6 @@ module.exports = {
                   .status(500)
                   .json({ error: "Failed to fetch favourites" });
               }
-
               const enquiriesMap = Object.fromEntries(
                 enquiryResults.map((e) => [e.unique_property_id, e.enquiries])
               );
@@ -318,7 +339,6 @@ module.exports = {
                   f.favourites,
                 ])
               );
-
               const properties = results.map((row) => {
                 const {
                   name,
@@ -331,14 +351,12 @@ module.exports = {
                   unique_property_id,
                   ...rest
                 } = row;
-
                 const formattedDate = updated_date
                   ? moment(updated_date).format("YYYY-MM-DD")
                   : null;
                 const formattedTime = updated_time
                   ? moment(updated_time, "HH:mm:ss").format("HH:mm:ss")
                   : null;
-
                 return {
                   ...rest,
                   unique_property_id,
@@ -347,7 +365,6 @@ module.exports = {
                   user: { name, email, mobile, photo, user_type },
                 };
               });
-
               const shuffled = shuffleProperties(properties, 10);
               res.status(200).json({
                 total_count,
@@ -495,7 +512,6 @@ module.exports = {
             return res.status(500).json({ error: "Database query failed" });
           }
           const propertyIds = results.map((row) => row.unique_property_id);
-
           if (propertyIds.length === 0) {
             return res.status(200).json({
               total_count,
@@ -505,23 +521,19 @@ module.exports = {
               properties: [],
             });
           }
-
           const placeholders = propertyIds.map(() => "?").join(",");
-
           const enquiryQuery = `
             SELECT unique_property_id, COUNT(*) AS enquiries
             FROM contact_seller
             WHERE unique_property_id IN (${placeholders})
             GROUP BY unique_property_id
           `;
-
           const favouriteQuery = `
             SELECT unique_property_id, COUNT(*) AS favourites
             FROM favourites
             WHERE unique_property_id IN (${placeholders})
             GROUP BY unique_property_id
           `;
-
           pool.query(enquiryQuery, propertyIds, (err, enquiryResults) => {
             if (err) {
               console.error("Enquiries Fetch Error:", err);
@@ -529,7 +541,6 @@ module.exports = {
                 .status(500)
                 .json({ error: "Failed to fetch enquiries" });
             }
-
             pool.query(favouriteQuery, propertyIds, (err, favouriteResults) => {
               if (err) {
                 console.error("Favourites Fetch Error:", err);
@@ -537,7 +548,6 @@ module.exports = {
                   .status(500)
                   .json({ error: "Failed to fetch favourites" });
               }
-
               const enquiriesMap = Object.fromEntries(
                 enquiryResults.map((e) => [e.unique_property_id, e.enquiries])
               );
@@ -547,7 +557,6 @@ module.exports = {
                   f.favourites,
                 ])
               );
-
               const properties = results.map((row) => {
                 const {
                   name,
@@ -560,14 +569,12 @@ module.exports = {
                   unique_property_id,
                   ...rest
                 } = row;
-
                 const formattedDate = updated_date
                   ? moment(updated_date).format("YYYY-MM-DD")
                   : null;
                 const formattedTime = updated_time
                   ? moment(updated_time, "HH:mm:ss").format("HH:mm:ss")
                   : null;
-
                 return {
                   ...rest,
                   unique_property_id,
@@ -578,7 +585,6 @@ module.exports = {
                   favourites: favouritesMap[unique_property_id] || 0,
                 };
               });
-
               res.status(200).json({
                 total_count,
                 current_page: pageNumber,
@@ -971,7 +977,6 @@ module.exports = {
     if (!user_id) {
       return res.status(400).json({ error: "Missing user_id parameter" });
     }
-
     try {
       const propertyQuery = `
         SELECT * FROM properties 
@@ -979,11 +984,9 @@ module.exports = {
         ORDER BY id DESC
       `;
       const [properties] = await pool.promise().query(propertyQuery, [user_id]);
-
       if (!properties.length) {
         return res.status(200).json({ count: 0, properties: [] });
       }
-
       const propertyActivities = await Promise.all(
         properties.map(async (property) => {
           const activityQuery = `
@@ -1003,7 +1006,6 @@ module.exports = {
           const [activityResults] = await pool
             .promise()
             .query(activityQuery, [property.unique_property_id]);
-
           const formattedActivity = activityResults.map((row) => {
             const {
               user_id,
@@ -1024,7 +1026,6 @@ module.exports = {
               },
             };
           });
-
           return {
             ...property,
             totalContacted: formattedActivity.length,
@@ -1032,7 +1033,6 @@ module.exports = {
           };
         })
       );
-
       return res.status(200).json({
         count: propertyActivities.length,
         properties: propertyActivities,
@@ -1042,7 +1042,6 @@ module.exports = {
       res.status(500).json({ message: "Internal Server Error" });
     }
   },
-
   getRandomPropertiesAds: (req, res) => {
     try {
       const query = `SELECT * FROM properties 
@@ -1359,7 +1358,6 @@ LIMIT 15;
     const { property_id } = req.query;
     let query;
     const params = [];
-
     if (property_id) {
       query = `
         SELECT 
@@ -1386,7 +1384,6 @@ LIMIT 15;
         ORDER BY view_count DESC
       `;
     }
-
     pool.query(query, params, (err, results) => {
       if (err) {
         console.error("Error fetching property views:", err);
