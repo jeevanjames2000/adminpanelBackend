@@ -173,7 +173,9 @@ module.exports = {
       unique_property_id,
       total_places_around_property,
       under_construction,
+      pantry_room,
     } = req.body;
+
     if (!unique_property_id) {
       return res.status(400).json({
         status: "error",
@@ -199,14 +201,14 @@ module.exports = {
       const normalizeBoolean = (value) =>
         value === "Yes" || value === 1 ? 1 : 0;
       const parsePeriod = (value) => {
-        if (!value) return 0;
-        const match = value.toString().match(/(\d+)/);
-        return match ? parseInt(match[1]) : 0;
+        if (!value || value === "None") return 0.0;
+        const match = value.toString().match(/(\d+(\.\d+)?)/);
+        return match ? parseFloat(match[1]) : 0.0;
       };
       const parseBrokerage = (value) => {
-        if (!value || value === "None") return 0;
-        const match = value.toString().match(/(\d+)/);
-        return match ? parseInt(match[1]) : 0;
+        if (!value || value === "None") return 0.0;
+        const match = value.toString().match(/(\d+(\.\d+)?)/);
+        return match ? parseFloat(match[1]) : 0.0;
       };
       const normalizeNumber = (value) => parseInt(value) || 0;
       const parseBHK = (value) => {
@@ -289,6 +291,7 @@ module.exports = {
         google_address: google_address || null,
         updated_date,
         under_construction: formattedUnderConstruction,
+        pantry_room,
       };
       await pool.promise().query(
         `
@@ -305,7 +308,7 @@ module.exports = {
           possession_status = ?, ownership_type = ?, facilities = ?, unit_flat_house_no = ?,
           plot_number = ?, business_types = ?, zone_types = ?, investor_property = ?,
           loan_facility = ?, facing = ?, car_parking = ?, bike_parking = ?,
-          open_parking = ?, servant_room = ?, description = ?, google_address = ?,under_construction=?,
+          open_parking = ?, servant_room = ?, description = ?, google_address = ?,under_construction=?,pantry_room= ?,
           updated_date = ?
         WHERE id = ?
         `,
@@ -363,6 +366,7 @@ module.exports = {
           data.description,
           data.google_address,
           data.under_construction,
+          data.pantry_room,
           data.updated_date,
           propertyId,
         ]
@@ -640,6 +644,115 @@ module.exports = {
           message: error.message,
         });
       }
+    });
+  },
+  getPropertyUploadedByUser: (req, res) => {},
+  checkSubscriptionAndProperties: (req, res) => {
+    const { user_id } = req.query;
+    if (!user_id) {
+      return res.status(400).json({
+        status: "error",
+        message: "User ID is required.",
+      });
+    }
+    function transformUserType(loginType) {
+      if (!loginType) return "unknown";
+
+      const normalized = loginType.trim().toLowerCase();
+
+      const typeMap = {
+        admin: "admin",
+        user: "user",
+        builder: "builder",
+        agent: "agent",
+        owner: "owner",
+        "channel partner": "channel_partner",
+        manager: "manager",
+        telecaller: "telecaller",
+        "marketing executive": "marketing_executive",
+        "customer support": "customer_support",
+        "customer service": "customer_service",
+      };
+
+      return typeMap[normalized] || "unknown";
+    }
+    const userQuery = `
+      SELECT u.subscription_status, u.subscription_package, u.user_type, ut.login_type 
+      FROM users u 
+      LEFT JOIN user_types ut ON u.user_type = ut.login_type_id 
+      WHERE u.id = ?
+    `;
+
+    pool.query(userQuery, [user_id], (err, userResult) => {
+      if (err) {
+        return res
+          .status(500)
+          .json({ status: "error", message: "Internal server error." });
+      }
+
+      if (!userResult.length) {
+        return res
+          .status(404)
+          .json({ status: "error", message: "User not found." });
+      }
+
+      const { subscription_status, subscription_package, login_type } =
+        userResult[0];
+
+      if (subscription_status !== "active") {
+        return res.status(403).json({
+          status: "error",
+          message:
+            "Your subscription is not active. Please upgrade your package",
+        });
+      }
+      const propertyCountQuery = `SELECT COUNT(*) AS count FROM properties WHERE user_id = ?`;
+
+      pool.query(propertyCountQuery, [user_id], (err, countResult) => {
+        if (err) {
+          return res
+            .status(500)
+            .json({ status: "error", message: "Internal server error." });
+        }
+
+        const uploadedCount = countResult[0].count;
+
+        const userTypeKey = transformUserType(login_type);
+
+        const limitQuery = `
+          SELECT number_of_listings 
+          FROM package_listing_limits 
+          WHERE package_name = ? AND package_for = ?
+        `;
+
+        pool.query(
+          limitQuery,
+          [subscription_package, userTypeKey],
+          (err, limitResult) => {
+            if (err) {
+              return res
+                .status(500)
+                .json({ status: "error", message: "Internal server error." });
+            }
+
+            const allowedListings = limitResult[0].number_of_listings;
+
+            if (uploadedCount >= allowedListings) {
+              return res.status(403).json({
+                status: "error",
+                message: `You have reached your maximum listing limit of ${allowedListings}. To upload more listings, please upgrade your package at https://x.ai/grok.`,
+              });
+            }
+            return res.status(200).json({
+              status: "success",
+              message: "You can upload property.",
+              allowedListings,
+              uploadedCount,
+              remaining: allowedListings - uploadedCount,
+            });
+          }
+        );
+      });
     });
   },
 };

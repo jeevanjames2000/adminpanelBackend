@@ -13,41 +13,14 @@ const adRoutes = require("./routes/adsRoutes");
 const packages = require("./routes/packageRoute");
 const paymentRoutes = require("./routes/paymentRoutes");
 const useragent = require("express-useragent");
-// require("./cronJobs");
 const app = express();
 const path = require("path");
 app.use(useragent.express());
 app.use(express.json());
-// Middleware
-const allowedOrigins = [
-  "https://testapi.meetowner.in",
-  "https://preprod.meetowner.in",
-  "https://admin.meetowner.in",
-  "http://localhost:3002",
-  "http://localhost:3001",
-  "http://localhost:3003",
-  "http://localhost:5173",
-];
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-
-const corsOptions = {
-  origin: function (origin, callback) {
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(new Error("Not allowed by CORS"));
-    }
-  },
-  credentials: true,
-  methods: "GET,POST,PUT,DELETE,OPTIONS",
-  allowedHeaders:
-    "Origin, X-Requested-With, Content-Type, Accept, Authorization",
-  exposedHeaders: ["Content-Disposition"],
-};
-
 app.use(
   cors({
-    origin: "*",
+    origin: "http://localhost:3000", // your frontend URL
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
     allowedHeaders:
       "Origin, X-Requested-With, Content-Type, Accept, Authorization",
@@ -55,10 +28,8 @@ app.use(
   })
 );
 
-// Main Routes
 app.use("/auth/v1", authRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-
 app.use("/api/v1", Routes);
 app.use("/user/v1", userRoutes);
 app.use("/listings/v1", listingRoutes);
@@ -69,6 +40,5 @@ app.use("/awsS3/v1", awsRoutes);
 app.use("/adAssets/v1", adRoutes);
 app.use("/packages/v1", packages);
 app.use("/payments", paymentRoutes);
-
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
