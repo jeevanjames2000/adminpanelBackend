@@ -10,5 +10,8 @@ router.post(
   "/addPropertyPhotosAndVideos",
   propertyController.addPropertyPhotosAndVideos
 );
-router.get("/checkSubscriptionAndProperties",propertyController.checkSubscriptionAndProperties)
+router.get(
+  "/checkSubscriptionAndProperties",
+  propertyController.checkSubscriptionAndProperties
+);
 module.exports = router;

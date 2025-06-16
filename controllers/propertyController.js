@@ -201,9 +201,9 @@ module.exports = {
       const normalizeBoolean = (value) =>
         value === "Yes" || value === 1 ? 1 : 0;
       const parsePeriod = (value) => {
-        if (!value || value === "None") return 0.0;
+        if (!value || value === "None") return 0;
         const match = value.toString().match(/(\d+(\.\d+)?)/);
-        return match ? parseFloat(match[1]) : 0.0;
+        return match ? parseFloat(match[1]) : 0;
       };
       const parseBrokerage = (value) => {
         if (!value || value === "None") return 0.0;
@@ -268,7 +268,7 @@ module.exports = {
         plot_area: parseFloat(plot_area) || 0,
         total_project_area: parseFloat(total_project_area) || 0,
         total_project_area_type: total_project_area_type || null,
-        pent_house: normalizeBoolean(pent_house),
+        pent_house: pent_house,
         builtup_unit: parseFloat(builtup_unit) || 0,
         unit_cost_type: unit_cost_type || null,
         property_cost: parseFloat(property_cost) || 0,
@@ -280,13 +280,13 @@ module.exports = {
         plot_number: parseInt(plot_number) || null,
         business_types: business_types || null,
         zone_types: zone_types || null,
-        investor_property: normalizeBoolean(investor_property),
-        loan_facility: normalizeBoolean(loan_facility),
+        investor_property: investor_property,
+        loan_facility: loan_facility,
         facing: facing || null,
         car_parking: car_parking,
         bike_parking: bike_parking,
         open_parking: open_parking,
-        servant_room: normalizeBoolean(servant_room),
+        servant_room: servant_room,
         description: description || null,
         google_address: google_address || null,
         updated_date,
@@ -414,6 +414,8 @@ module.exports = {
       property_name,
       plot_number,
       google_address,
+      builder_name,
+      villa_number,
     } = req.body;
     if (!unique_property_id) {
       return res.status(400).json({
@@ -450,7 +452,7 @@ module.exports = {
       await conn.query(
         `UPDATE properties SET
           city_id = ?, state_id = ?, property_name = ?, unit_flat_house_no = ?, floors = ?, 
-          total_floors = ?, plot_number = ?, updated_date = ?, google_address = ?,location_id = ?
+          total_floors = ?, plot_number = ?, updated_date = ?, google_address = ?,location_id = ?,builder_name = ?,villa_number = ?
          WHERE unique_property_id = ?`,
         [
           city_id,
@@ -463,6 +465,8 @@ module.exports = {
           updated_date,
           google_address,
           locality,
+          builder_name,
+          villa_number,
           unique_property_id,
         ]
       );
@@ -479,6 +483,7 @@ module.exports = {
           floors,
           total_floors,
           plot_number: plot_number?.toString(),
+          builder_name,
           updated_date,
           google_address,
         },
