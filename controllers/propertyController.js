@@ -3,8 +3,100 @@ const moment = require("moment");
 const multiparty = require("multiparty");
 const fs = require("fs");
 const path = require("path");
+const util = require("util");
+const userTypeMap = {
+  1: "admin",
+  2: "user",
+  3: "builder",
+  4: "agent",
+  5: "owner",
+  6: "channel_partner",
+  7: "manager",
+  8: "telecaller",
+  9: "marketing_executive",
+  10: "customer_support",
+  11: "customer_service",
+};
+const query = util.promisify(pool.query).bind(pool);
+
+async function checkSubscriptionAndProperties(user_id) {
+  try {
+    const userQuery = `
+      SELECT 
+        u.subscription_status,
+        IF(u.subscription_status = 'active', u.subscription_package, 'Free Listing') AS effective_package,
+        u.user_type
+      FROM users u
+      WHERE u.id = ?
+    `;
+    const userResult = await query(userQuery, [user_id]);
+
+    if (!userResult.length) {
+      throw new Error("User not found.");
+    }
+
+    const { subscription_status, effective_package, user_type } = userResult[0];
+
+    if (subscription_status !== "active") {
+      throw new Error(
+        "Your subscription is not active. Please upgrade your package."
+      );
+    }
+
+    const userTypeKey = userTypeMap[user_type] || "unknown";
+    const normalizedPackage = (effective_package || "Free Listing")
+      .trim()
+      .toLowerCase()
+      .replace(/ /g, "_");
+
+    const displayPackageMap = {
+      free_listing: "Free Listing",
+      basic: "Basic",
+      prime: "Prime",
+      prime_plus: "Prime Plus",
+    };
+
+    const displayPackage =
+      displayPackageMap[normalizedPackage] || effective_package;
+
+    const [propertyCountResult, limitResult] = await Promise.all([
+      query(`SELECT COUNT(*) AS count FROM properties WHERE user_id = ?`, [
+        user_id,
+      ]),
+      query(
+        `SELECT number_of_listings FROM package_listing_limits WHERE package_name = ? AND package_for = ?`,
+        [displayPackage, userTypeKey]
+      ),
+    ]);
+
+    const uploadedCount = propertyCountResult[0].count;
+
+    if (!limitResult.length) {
+      throw new Error(
+        `No listing limit found for package '${displayPackage}' and user type '${userTypeKey}'.`
+      );
+    }
+
+    const allowedListings = limitResult[0].number_of_listings;
+
+    if (uploadedCount >= allowedListings) {
+      throw new Error(
+        `You have reached your maximum listing limit of ${allowedListings}. To upload more listings, please upgrade your package.`
+      );
+    }
+
+    return {
+      allowedListings,
+      uploadedCount,
+      remaining: allowedListings - uploadedCount,
+    };
+  } catch (err) {
+    console.error("Error in checkSubscriptionAndProperties:", err);
+    throw err;
+  }
+}
 module.exports = {
-  addBasicdetails: (req, res) => {
+  addBasicdetails: async (req, res) => {
     const {
       property_in,
       property_for,
@@ -13,107 +105,149 @@ module.exports = {
       unique_property_id,
       user_type,
     } = req.body;
+
     if (!user_id) {
       return res.status(400).json({
         status: "error",
         message: "User id is required, please login and try again",
       });
     }
-    const updated_date = moment().format("YYYY-MM-DD");
-    const generatedUniqueId =
-      unique_property_id || "MO-" + Math.floor(100000 + Math.random() * 900000);
-    const checkPropertyQuery = `
-      SELECT * FROM properties WHERE unique_property_id = ?
-    `;
-    const updatePropertyQuery = `
-      UPDATE properties SET 
-        property_in = ?, 
-        property_for = ?, 
-        transaction_type = ?, 
-        user_type = ?, 
-        updated_date = ?
-      WHERE unique_property_id = ?
-    `;
-    const insertPropertyQuery = `
-      INSERT INTO properties (
-        user_id, unique_property_id, property_in, property_for, 
-        transaction_type, user_type, updated_date
-      ) VALUES (?, ?, ?, ?, ?, ?, ?)
-    `;
-    pool.query(checkPropertyQuery, [generatedUniqueId], (err, rows) => {
-      if (err) {
-        console.error("Check property error:", err);
-        return res.status(500).json({ status: "error", message: err.message });
-      }
-      const property = rows[0];
+
+    try {
+      const updated_date = moment().format("YYYY-MM-DD");
+      const generatedUniqueId =
+        unique_property_id ||
+        "MO-" + Math.floor(100000 + Math.random() * 900000);
+
+      const checkPropertyQuery = `
+        SELECT * FROM properties WHERE unique_property_id = ?
+      `;
+      const propertyResult = await query(checkPropertyQuery, [
+        generatedUniqueId,
+      ]);
+      const property = propertyResult[0];
+
       if (property) {
-        pool.query(
-          updatePropertyQuery,
-          [
+        // Update existing property (no limit check)
+        const updatePropertyQuery = `
+          UPDATE properties SET 
+            property_in = ?, 
+            property_for = ?, 
+            transaction_type = ?, 
+            user_type = ?, 
+            updated_date = ?
+          WHERE unique_property_id = ?
+        `;
+        await query(updatePropertyQuery, [
+          property_in,
+          property_for,
+          transaction_type,
+          user_type,
+          updated_date,
+          generatedUniqueId,
+        ]);
+
+        return res.status(200).json({
+          status: "success",
+          message: "Property details updated successfully",
+          property: {
+            unique_property_id: generatedUniqueId,
             property_in,
             property_for,
             transaction_type,
             user_type,
             updated_date,
-            generatedUniqueId,
-          ],
-          (updateErr) => {
-            if (updateErr) {
-              console.error("Update property error:", updateErr);
-              return res
-                .status(500)
-                .json({ status: "error", message: updateErr.message });
-            }
-            return res.status(200).json({
-              status: "success",
-              message: "Property details updated successfully",
-              property: {
-                unique_property_id: generatedUniqueId,
-                property_in,
-                property_for,
-                transaction_type,
-                user_type,
-                updated_date,
-              },
-            });
-          }
-        );
+          },
+        });
       } else {
-        pool.query(
-          insertPropertyQuery,
-          [
-            user_id,
-            generatedUniqueId,
+        // Check subscription and limits before inserting new property
+        await checkSubscriptionAndProperties(user_id);
+
+        // Insert new property
+        const insertPropertyQuery = `
+          INSERT INTO properties (
+            user_id, unique_property_id, property_in, property_for, 
+            transaction_type, user_type, updated_date
+          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        `;
+        const insertResult = await query(insertPropertyQuery, [
+          user_id,
+          generatedUniqueId,
+          property_in,
+          property_for,
+          transaction_type,
+          user_type,
+          updated_date,
+        ]);
+
+        return res.status(200).json({
+          status: "success",
+          message: "Property details added successfully",
+          property: {
+            property_id: insertResult.insertId,
+            unique_property_id: generatedUniqueId,
             property_in,
             property_for,
             transaction_type,
             user_type,
             updated_date,
-          ],
-          (insertErr, insertResult) => {
-            if (insertErr) {
-              console.error("Insert property error:", insertErr);
-              return res
-                .status(500)
-                .json({ status: "error", message: insertErr.message });
-            }
-            return res.status(200).json({
-              status: "success",
-              message: "Property details added successfully",
-              property: {
-                property_id: insertResult.insertId,
-                unique_property_id: generatedUniqueId,
-                property_in,
-                property_for,
-                transaction_type,
-                user_type,
-                updated_date,
-              },
-            });
-          }
-        );
+          },
+        });
       }
-    });
+    } catch (err) {
+      console.error("Error in addBasicdetails:", err);
+      if (err.message.includes("User not found")) {
+        return res.status(404).json({ status: "error", message: err.message });
+      }
+      if (err.message.includes("subscription is not active")) {
+        return res.status(403).json({ status: "error", message: err.message });
+      }
+      if (err.message.includes("listing limit")) {
+        return res.status(403).json({ status: "error", message: err.message });
+      }
+      return res
+        .status(500)
+        .json({ status: "error", message: "Internal server error." });
+    }
+  },
+
+  checkSubscriptionAndProperties: async (req, res) => {
+    const { user_id } = req.query;
+
+    if (!user_id) {
+      return res.status(400).json({
+        status: "error",
+        message: "User ID is required.",
+      });
+    }
+
+    try {
+      const { allowedListings, uploadedCount, remaining } =
+        await checkSubscriptionAndProperties(user_id);
+
+      return res.status(200).json({
+        status: "success",
+        message: "You can upload property.",
+        allowedListings,
+        uploadedCount,
+        remaining,
+      });
+    } catch (err) {
+      console.error("Error in checkSubscriptionAndProperties endpoint:", err);
+      if (err.message.includes("User not found")) {
+        return res.status(404).json({ status: "error", message: err.message });
+      }
+      if (err.message.includes("subscription is not active")) {
+        return res.status(403).json({ status: "error", message: err.message });
+      }
+      if (err.message.includes("listing limit")) {
+        return res.status(403).json({ status: "error", message: err.message });
+      }
+      return res.status(500).json({
+        status: "error",
+        message: "Internal server error.",
+      });
+    }
   },
   addPropertyDetails: async (req, res) => {
     const {
@@ -175,7 +309,6 @@ module.exports = {
       under_construction,
       pantry_room,
     } = req.body;
-
     if (!unique_property_id) {
       return res.status(400).json({
         status: "error",
@@ -229,11 +362,9 @@ module.exports = {
           .join(", ");
         if (!formattedFacilities) formattedFacilities = null;
       }
-
       const formattedUnderConstruction = under_construction
         ? moment(under_construction).format("YYYY-MM-DD")
         : null;
-
       const data = {
         sub_type: sub_type || null,
         land_sub_type: land_sub_type || null,
@@ -649,115 +780,6 @@ module.exports = {
           message: error.message,
         });
       }
-    });
-  },
-  getPropertyUploadedByUser: (req, res) => {},
-  checkSubscriptionAndProperties: (req, res) => {
-    const { user_id } = req.query;
-    if (!user_id) {
-      return res.status(400).json({
-        status: "error",
-        message: "User ID is required.",
-      });
-    }
-    function transformUserType(loginType) {
-      if (!loginType) return "unknown";
-
-      const normalized = loginType.trim().toLowerCase();
-
-      const typeMap = {
-        admin: "admin",
-        user: "user",
-        builder: "builder",
-        agent: "agent",
-        owner: "owner",
-        "channel partner": "channel_partner",
-        manager: "manager",
-        telecaller: "telecaller",
-        "marketing executive": "marketing_executive",
-        "customer support": "customer_support",
-        "customer service": "customer_service",
-      };
-
-      return typeMap[normalized] || "unknown";
-    }
-    const userQuery = `
-      SELECT u.subscription_status, u.subscription_package, u.user_type, ut.login_type 
-      FROM users u 
-      LEFT JOIN user_types ut ON u.user_type = ut.login_type_id 
-      WHERE u.id = ?
-    `;
-
-    pool.query(userQuery, [user_id], (err, userResult) => {
-      if (err) {
-        return res
-          .status(500)
-          .json({ status: "error", message: "Internal server error." });
-      }
-
-      if (!userResult.length) {
-        return res
-          .status(404)
-          .json({ status: "error", message: "User not found." });
-      }
-
-      const { subscription_status, subscription_package, login_type } =
-        userResult[0];
-
-      if (subscription_status !== "active") {
-        return res.status(403).json({
-          status: "error",
-          message:
-            "Your subscription is not active. Please upgrade your package",
-        });
-      }
-      const propertyCountQuery = `SELECT COUNT(*) AS count FROM properties WHERE user_id = ?`;
-
-      pool.query(propertyCountQuery, [user_id], (err, countResult) => {
-        if (err) {
-          return res
-            .status(500)
-            .json({ status: "error", message: "Internal server error." });
-        }
-
-        const uploadedCount = countResult[0].count;
-
-        const userTypeKey = transformUserType(login_type);
-
-        const limitQuery = `
-          SELECT number_of_listings 
-          FROM package_listing_limits 
-          WHERE package_name = ? AND package_for = ?
-        `;
-
-        pool.query(
-          limitQuery,
-          [subscription_package, userTypeKey],
-          (err, limitResult) => {
-            if (err) {
-              return res
-                .status(500)
-                .json({ status: "error", message: "Internal server error." });
-            }
-
-            const allowedListings = limitResult[0].number_of_listings;
-
-            if (uploadedCount >= allowedListings) {
-              return res.status(403).json({
-                status: "error",
-                message: `You have reached your maximum listing limit of ${allowedListings}. To upload more listings, please upgrade your package at https://x.ai/grok.`,
-              });
-            }
-            return res.status(200).json({
-              status: "success",
-              message: "You can upload property.",
-              allowedListings,
-              uploadedCount,
-              remaining: allowedListings - uploadedCount,
-            });
-          }
-        );
-      });
     });
   },
 };
