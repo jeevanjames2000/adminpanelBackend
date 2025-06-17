@@ -14,4 +14,8 @@ router.get(
   "/checkSubscriptionAndProperties",
   propertyController.checkSubscriptionAndProperties
 );
+router.get(
+  "/getAllPropertiesUploaded",
+  propertyController.getAllPropertiesUploaded
+);
 module.exports = router;

@@ -1665,4 +1665,27 @@ module.exports = {
       });
     });
   },
+  getAllSubscriptionDetails: async (req, res) => {
+    const { user_id } = req.query;
+
+    if (!user_id) {
+      return res.status(400).json({ error: "Missing user_id parameter" });
+    }
+
+    try {
+      const query = `
+        SELECT * FROM payment_details 
+        WHERE user_id = ? 
+        AND subscription_status IN ('active', 'processing')
+        ORDER BY id DESC
+      `;
+
+      const [results] = await pool.promise().query(query, [user_id]);
+
+      return res.status(200).json({ subscriptions: results });
+    } catch (error) {
+      console.error("Error fetching subscription details:", error);
+      return res.status(500).json({ message: "Internal Server Error" });
+    }
+  },
 };

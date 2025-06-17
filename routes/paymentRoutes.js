@@ -14,6 +14,9 @@ router.get("/getInvoiceByID", paymentController.getInvoiceByID);
 router.get("/getAllInvoicesByID", paymentController.getAllInvoicesByID);
 router.get("/expiringSoonPackage", paymentController.expiringSoonPackage);
 router.get("/getAllExpiringSoon", paymentController.getAllExpiringSoon);
-
+router.get(
+  "/getAllSubscriptionStatus",
+  paymentController.getAllSubscriptionDetails
+);
 // router.post("/sendWhatsappLeads", paymentController.sendWhatsappLeads);
 module.exports = router;

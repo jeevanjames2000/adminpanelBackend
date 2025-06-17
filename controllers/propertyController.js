@@ -18,81 +18,114 @@ const userTypeMap = {
   11: "customer_service",
 };
 const query = util.promisify(pool.query).bind(pool);
-
-async function checkSubscriptionAndProperties(user_id) {
+async function checkSubscriptionAndProperties(user_id, city) {
   try {
-    const userQuery = `
-      SELECT 
-        u.subscription_status,
-        IF(u.subscription_status = 'active', u.subscription_package, 'Free Listing') AS effective_package,
-        u.user_type
-      FROM users u
-      WHERE u.id = ?
-    `;
+    if (!user_id || isNaN(parseInt(user_id))) {
+      throw new Error("Valid User ID is required.");
+    }
+    if (!city) {
+      throw new Error("City is required.");
+    }
+    const userQuery = `SELECT user_type FROM users WHERE id = ?`;
     const userResult = await query(userQuery, [user_id]);
-
     if (!userResult.length) {
       throw new Error("User not found.");
     }
-
-    const { subscription_status, effective_package, user_type } = userResult[0];
-
-    if (subscription_status !== "active") {
-      throw new Error(
-        "Your subscription is not active. Please upgrade your package."
-      );
-    }
-
+    const { user_type } = userResult[0];
     const userTypeKey = userTypeMap[user_type] || "unknown";
+    const subscriptionQuery = `
+      SELECT subscription_package, payment_status, subscription_status, subscription_start_date, subscription_expiry_date
+      FROM payment_details
+      WHERE user_id = ? AND city = ? AND payment_status IN ('success', 'processing') AND subscription_status IN ('active', 'processing')
+      ORDER BY created_at DESC
+      LIMIT 1
+    `;
+    const subscriptionResult = await query(subscriptionQuery, [user_id, city]);
+    let effective_package = "Free Listing";
+    let subscription_status = "inactive";
+    let subscription_start_date = null;
+    let subscription_expiry_date = null;
+    if (
+      subscriptionResult.length &&
+      subscriptionResult[0].payment_status === "success"
+    ) {
+      effective_package = subscriptionResult[0].subscription_package;
+      subscription_status = "active";
+      subscription_start_date = subscriptionResult[0].subscription_start_date;
+      subscription_expiry_date = subscriptionResult[0].subscription_expiry_date;
+    }
     const normalizedPackage = (effective_package || "Free Listing")
       .trim()
       .toLowerCase()
       .replace(/ /g, "_");
-
     const displayPackageMap = {
       free_listing: "Free Listing",
       basic: "Basic",
       prime: "Prime",
       prime_plus: "Prime Plus",
     };
-
     const displayPackage =
       displayPackageMap[normalizedPackage] || effective_package;
-
-    const [propertyCountResult, limitResult] = await Promise.all([
-      query(`SELECT COUNT(*) AS count FROM properties WHERE user_id = ?`, [
-        user_id,
-      ]),
-      query(
-        `SELECT number_of_listings FROM package_listing_limits WHERE package_name = ? AND package_for = ?`,
-        [displayPackage, userTypeKey]
-      ),
-    ]);
-
+    const propertyCountQuery =
+      effective_package === "Free Listing"
+        ? `SELECT COUNT(*) AS count FROM properties WHERE user_id = ?`
+        : `SELECT COUNT(*) AS count FROM properties WHERE user_id = ? AND city_id = ?`;
+    const propertyCountResult = await query(
+      propertyCountQuery,
+      effective_package === "Free Listing" ? [user_id] : [user_id, city]
+    );
+    const limitResult = await query(
+      `SELECT number_of_listings FROM package_listing_limits WHERE package_name = ? AND package_for = ?`,
+      [displayPackage, userTypeKey]
+    );
     const uploadedCount = propertyCountResult[0].count;
-
     if (!limitResult.length) {
       throw new Error(
         `No listing limit found for package '${displayPackage}' and user type '${userTypeKey}'.`
       );
     }
-
     const allowedListings = limitResult[0].number_of_listings;
-
-    if (uploadedCount >= allowedListings) {
-      throw new Error(
-        `You have reached your maximum listing limit of ${allowedListings}. To upload more listings, please upgrade your package.`
-      );
-    }
-
-    return {
+    const subscriptionData = {
       allowedListings,
       uploadedCount,
-      remaining: allowedListings - uploadedCount,
+      remaining: Math.max(0, allowedListings - uploadedCount),
+      subscriptionPackage: displayPackage,
+      userType: userTypeKey,
+      city,
+      subscription_start_date,
+      subscription_expiry_date,
+    };
+    if (uploadedCount >= allowedListings) {
+      return {
+        status: "error",
+        message: `You have reached your maximum listing limit of ${allowedListings} for ${city}. To upload more listings, please upgrade your package.`,
+        data: subscriptionData,
+      };
+    }
+    return {
+      status: "success",
+      message: `You can upload property in ${city}.`,
+      data: subscriptionData,
     };
   } catch (err) {
     console.error("Error in checkSubscriptionAndProperties:", err);
-    throw err;
+    const defaultData = {
+      allowedListings: 0,
+      uploadedCount: 0,
+      remaining: 0,
+      subscriptionPackage: null,
+      userType: null,
+      city: city || null,
+      subscription_start_date: null,
+      subscription_expiry_date: null,
+    };
+    throw new Error(
+      JSON.stringify({
+        status: "error",
+        message: err.message,
+        data: defaultData,
+      })
+    );
   }
 }
 module.exports = {
@@ -104,21 +137,41 @@ module.exports = {
       user_id,
       unique_property_id,
       user_type,
+      city,
     } = req.body;
-
     if (!user_id) {
       return res.status(400).json({
         status: "error",
         message: "User id is required, please login and try again",
+        data: {
+          allowedListings: 0,
+          uploadedCount: 0,
+          remaining: 0,
+          subscriptionPackage: null,
+          userType: null,
+          city: null,
+        },
       });
     }
-
+    if (!city) {
+      return res.status(400).json({
+        status: "error",
+        message: "City is required.",
+        data: {
+          allowedListings: 0,
+          uploadedCount: 0,
+          remaining: 0,
+          subscriptionPackage: null,
+          userType: null,
+          city: null,
+        },
+      });
+    }
     try {
       const updated_date = moment().format("YYYY-MM-DD");
       const generatedUniqueId =
         unique_property_id ||
         "MO-" + Math.floor(100000 + Math.random() * 900000);
-
       const checkPropertyQuery = `
         SELECT * FROM properties WHERE unique_property_id = ?
       `;
@@ -126,16 +179,15 @@ module.exports = {
         generatedUniqueId,
       ]);
       const property = propertyResult[0];
-
       if (property) {
-        // Update existing property (no limit check)
         const updatePropertyQuery = `
           UPDATE properties SET 
             property_in = ?, 
             property_for = ?, 
             transaction_type = ?, 
             user_type = ?, 
-            updated_date = ?
+            updated_date = ?,
+            city_id = ?
           WHERE unique_property_id = ?
         `;
         await query(updatePropertyQuery, [
@@ -144,31 +196,38 @@ module.exports = {
           transaction_type,
           user_type,
           updated_date,
+          city,
           generatedUniqueId,
         ]);
-
         return res.status(200).json({
           status: "success",
-          message: "Property details updated successfully",
-          property: {
-            unique_property_id: generatedUniqueId,
-            property_in,
-            property_for,
-            transaction_type,
-            user_type,
-            updated_date,
+          message: "Basic details updated successfully",
+          data: {
+            property: {
+              unique_property_id: generatedUniqueId,
+              property_in,
+              property_for,
+              transaction_type,
+              user_type,
+              updated_date,
+              city,
+            },
           },
         });
       } else {
-        // Check subscription and limits before inserting new property
-        await checkSubscriptionAndProperties(user_id);
-
-        // Insert new property
+        const subscriptionCheck = await checkSubscriptionAndProperties(
+          user_id,
+          city
+        );
+        if (subscriptionCheck.status === "error") {
+          return res.status(403).json(subscriptionCheck);
+        }
+        const subscriptionData = subscriptionCheck.data;
         const insertPropertyQuery = `
           INSERT INTO properties (
             user_id, unique_property_id, property_in, property_for, 
-            transaction_type, user_type, updated_date
-          ) VALUES (?, ?, ?, ?, ?, ?, ?)
+            transaction_type, user_type, updated_date, city_id
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `;
         const insertResult = await query(insertPropertyQuery, [
           user_id,
@@ -178,74 +237,117 @@ module.exports = {
           transaction_type,
           user_type,
           updated_date,
+          city,
         ]);
-
         return res.status(200).json({
           status: "success",
           message: "Property details added successfully",
-          property: {
-            property_id: insertResult.insertId,
-            unique_property_id: generatedUniqueId,
-            property_in,
-            property_for,
-            transaction_type,
-            user_type,
-            updated_date,
+          data: {
+            property: {
+              property_id: insertResult.insertId,
+              unique_property_id: generatedUniqueId,
+              property_in,
+              property_for,
+              transaction_type,
+              user_type,
+              updated_date,
+              city,
+            },
+            ...subscriptionData,
           },
         });
       }
     } catch (err) {
       console.error("Error in addBasicdetails:", err);
-      if (err.message.includes("User not found")) {
-        return res.status(404).json({ status: "error", message: err.message });
+      const defaultData = {
+        allowedListings: 0,
+        uploadedCount: 0,
+        remaining: 0,
+        subscriptionPackage: null,
+        userType: null,
+        city: city || null,
+      };
+      try {
+        const check = await checkSubscriptionAndProperties(user_id, city);
+        defaultData.allowedListings = check.data.allowedListings;
+        defaultData.uploadedCount = check.data.uploadedCount;
+        defaultData.remaining = check.data.remaining;
+        defaultData.subscriptionPackage = check.data.subscriptionPackage;
+        defaultData.userType = check.data.userType;
+      } catch (innerErr) {
+        console.error("Failed to fetch subscription data:", innerErr);
       }
-      if (err.message.includes("subscription is not active")) {
-        return res.status(403).json({ status: "error", message: err.message });
+      if (err.message.includes("User not found")) {
+        return res.status(404).json({
+          status: "error",
+          message: err.message,
+          data: defaultData,
+        });
+      }
+      if (err.message.includes("City is required")) {
+        return res.status(400).json({
+          status: "error",
+          message: err.message,
+          data: defaultData,
+        });
       }
       if (err.message.includes("listing limit")) {
-        return res.status(403).json({ status: "error", message: err.message });
-      }
-      return res
-        .status(500)
-        .json({ status: "error", message: "Internal server error." });
-    }
-  },
-
-  checkSubscriptionAndProperties: async (req, res) => {
-    const { user_id } = req.query;
-
-    if (!user_id) {
-      return res.status(400).json({
-        status: "error",
-        message: "User ID is required.",
-      });
-    }
-
-    try {
-      const { allowedListings, uploadedCount, remaining } =
-        await checkSubscriptionAndProperties(user_id);
-
-      return res.status(200).json({
-        status: "success",
-        message: "You can upload property.",
-        allowedListings,
-        uploadedCount,
-        remaining,
-      });
-    } catch (err) {
-      console.error("Error in checkSubscriptionAndProperties endpoint:", err);
-      if (err.message.includes("User not found")) {
-        return res.status(404).json({ status: "error", message: err.message });
-      }
-      if (err.message.includes("subscription is not active")) {
-        return res.status(403).json({ status: "error", message: err.message });
-      }
-      if (err.message.includes("listing limit")) {
-        return res.status(403).json({ status: "error", message: err.message });
+        return res.status(403).json({
+          status: "error",
+          message: err.message,
+          data: defaultData,
+        });
       }
       return res.status(500).json({
         status: "error",
         message: "Internal server error.",
+        data: defaultData,
+      });
+    }
+  },
+  checkSubscriptionAndProperties: async (req, res) => {
+    const { user_id, city } = req.query;
+    try {
+      const result = await checkSubscriptionAndProperties(user_id, city);
+      return res.status(result.status === "success" ? 200 : 403).json(result);
+    } catch (err) {
+      console.error("Error in checkSubscriptionAndProperties endpoint:", err);
+      const defaultData = {
+        allowedListings: 0,
+        uploadedCount: 0,
+        remaining: 0,
+        subscriptionPackage: null,
+        userType: null,
+        city: city || null,
+      };
+      if (
+        err.message.includes("User ID is required") ||
+        err.message.includes("City is required")
+      ) {
+        return res.status(400).json({
+          status: "error",
+          message: err.message,
+          data: defaultData,
+        });
+      }
+      if (err.message.includes("User not found")) {
+        return res.status(404).json({
+          status: "error",
+          message: err.message,
+          data: defaultData,
+        });
+      }
+      if (err.message.includes("listing limit")) {
+        return res.status(403).json({
+          status: "error",
+          message: err.message,
+          data: defaultData,
+        });
+      }
+      return res.status(500).json({
+        status: "error",
+        message: "Internal server error.",
+        data: defaultData,
       });
     }
   },
@@ -781,5 +883,103 @@ module.exports = {
         });
       }
     });
+  },
+  getAllPropertiesUploaded: async (req, res) => {
+    const { user_id, city } = req.query;
+    if (!user_id || isNaN(parseInt(user_id))) {
+      return res.status(400).json({
+        status: "error",
+        message: "Valid User ID is required.",
+        data: {
+          allowedListings: 0,
+          uploadedCount: 0,
+          remaining: 0,
+          subscriptionPackage: null,
+          userType: null,
+          city: city || null,
+          subscription_start_date: null,
+          subscription_expiry_date: null,
+        },
+      });
+    }
+    if (!city) {
+      return res.status(400).json({
+        status: "error",
+        message: "City is required.",
+        data: {
+          allowedListings: 0,
+          uploadedCount: 0,
+          remaining: 0,
+          subscriptionPackage: null,
+          userType: null,
+          city: null,
+          subscription_start_date: null,
+          subscription_expiry_date: null,
+        },
+      });
+    }
+    try {
+      const subscriptionCheck = await checkSubscriptionAndProperties(
+        user_id,
+        city
+      );
+      const { data: subscriptionData, status, message } = subscriptionCheck;
+      const propertiesQuery =
+        subscriptionData.subscriptionPackage === "Free Listing"
+          ? `SELECT * FROM properties WHERE user_id = ?`
+          : `SELECT * FROM properties WHERE user_id = ? AND city_id=?`;
+      const propertiesResult = await query(
+        propertiesQuery,
+        subscriptionData.subscriptionPackage === "Free Listing"
+          ? [user_id]
+          : [user_id, city]
+      );
+      return res.status(200).json({
+        status: "success",
+        message: "Properties and subscription details fetched successfully.",
+        data: {
+          ...subscriptionData,
+          totalProperties: propertiesResult.length,
+        },
+      });
+    } catch (err) {
+      const defaultData = {
+        allowedListings: 0,
+        uploadedCount: 0,
+        remaining: 0,
+        subscriptionPackage: null,
+        userType: null,
+        city: city || null,
+        subscription_start_date: null,
+        subscription_expiry_date: null,
+        properties: [],
+        totalProperties: 0,
+      };
+      if (
+        err.message.includes("User ID is required") ||
+        err.message.includes("City is required")
+      ) {
+        return res.status(400).json({
+          status: "error",
+          message: err.message,
+          data: defaultData,
+        });
+      }
+      if (
+        err.message.includes("User not found") ||
+        err.message.includes("City ")
+      ) {
+        return res.status(404).json({
+          status: "error",
+          message: err.message,
+          data: defaultData,
+        });
+      }
+      return res.status(500).json({
+        status: "error",
+        message: "Internal server error.",
+        data: defaultData,
+      });
+    }
   },
 };
