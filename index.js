@@ -20,14 +20,22 @@ app.use(express.json());
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use(
   cors({
-    origin: "http://localhost:3000", // your frontend URL
+    origin: "http://localhost:3000",
     methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
     allowedHeaders:
       "Origin, X-Requested-With, Content-Type, Accept, Authorization",
     credentials: true,
   })
 );
+const noCacheMiddleware = (req, res, next) => {
+  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+  res.setHeader("Pragma", "no-cache");
+  res.setHeader("Expires", "0");
+  next();
+};
 
+app.use("/property/v1", noCacheMiddleware);
+app.use("/listings/v1", noCacheMiddleware);
 app.use("/auth/v1", authRoutes);
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use("/api/v1", Routes);
