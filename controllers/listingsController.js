@@ -875,98 +875,146 @@ module.exports = {
   getLatestProperties: async (req, res) => {
     const { property_for } = req.query;
     try {
-      if (property_for === "Rent") {
-        let query = `SELECT * FROM properties WHERE property_status = 1  AND sub_type != "PLOT" AND property_for = ? ORDER BY id DESC`;
-        pool.query(query, [property_for], (err, results) => {
-          if (err) {
-            return res.status(500).json({ error: "Database query failed" });
-          }
-          const shuffleArray = (array) => {
-            for (let i = array.length - 1; i > 0; i--) {
-              const j = Math.floor(Math.random() * (i + 1));
-              [array[i], array[j]] = [array[j], array[i]];
-            }
-            return array;
-          };
-          const getFirstWord = (name) => {
-            return name?.split(" ")[0]?.toLowerCase() || "";
-          };
-          const shuffledProperties = shuffleArray([...results]);
-          const uniqueProperties = [];
+      const shuffleArray = (array) => {
+        for (let i = array.length - 1; i > 0; i--) {
+          const j = Math.floor(Math.random() * (i + 1));
+          [array[i], array[j]] = [array[j], array[i]];
+        }
+        return array;
+      };
+      const getFirstWord = (name) => {
+        return name?.split(" ")[0]?.toLowerCase() || "";
+      };
+      const eightDaysAgo = moment()
+        .subtract(8, "days")
+        .format("YYYY-MM-DD HH:mm:ss");
+      let newPropertiesQuery = `SELECT * FROM properties WHERE property_status = 1 AND sub_type != "PLOT" AND updated_date >= ?`;
+      let queryParams = [eightDaysAgo];
+      if (property_for) {
+        newPropertiesQuery += ` AND property_for = ?`;
+        queryParams.push(property_for);
+      }
+      if (property_for !== "Rent") {
+        newPropertiesQuery += ` AND sub_type = "Apartment"`;
+      }
+      newPropertiesQuery += ` ORDER BY id DESC`;
+      pool.query(newPropertiesQuery, queryParams, (err, newResults) => {
+        if (err) {
+          console.error("Database query failed for new properties:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        let uniqueNewProperties = [];
+        if (newResults.length > 0) {
+          const shuffledNewProperties = shuffleArray([...newResults]);
           const seenFirstWords = new Set();
-          for (const property of shuffledProperties) {
+          for (const property of shuffledNewProperties) {
             const firstWord = getFirstWord(property.property_name);
             if (!seenFirstWords.has(firstWord)) {
               seenFirstWords.add(firstWord);
-              uniqueProperties.push(property);
+              uniqueNewProperties.push(property);
             }
-            if (uniqueProperties.length >= 15) break;
+            if (uniqueNewProperties.length >= 15) break;
           }
-          const finalProperties = uniqueProperties
+        }
+        if (uniqueNewProperties.length >= 10) {
+          const finalProperties = uniqueNewProperties
             .sort(() => Math.random() - 0.5)
-            .slice(0, 8);
+            .slice(0, 10);
           return res.status(200).json({
             count: finalProperties.length,
             properties: finalProperties,
           });
-        });
-      } else {
-        const latestPropertyQuery = `SELECT updated_date FROM properties WHERE property_status = 1 AND sub_type != "PLOT" ORDER BY id DESC LIMIT 1`;
-        pool.query(latestPropertyQuery, async (err, latestResult) => {
+        }
+        const remainingCount = 10 - uniqueNewProperties.length;
+        let topPropertiesQuery = `SELECT * FROM properties WHERE property_status = 1 AND sub_type != "PLOT"`;
+        let topQueryParams = [];
+        if (property_for) {
+          topPropertiesQuery += ` AND property_for = ?`;
+          topQueryParams.push(property_for);
+        }
+        if (property_for !== "Rent") {
+          topPropertiesQuery += ` AND sub_type = "Apartment"`;
+        }
+        if (uniqueNewProperties.length > 0) {
+          const selectedIds = uniqueNewProperties.map((p) => p.id).join(",");
+          topPropertiesQuery += ` AND id NOT IN (${selectedIds})`;
+        }
+        topPropertiesQuery += ` ORDER BY id DESC LIMIT ?`;
+        topQueryParams.push(remainingCount + 5);
+        pool.query(topPropertiesQuery, topQueryParams, (err, topResults) => {
           if (err) {
-            return res
-              .status(500)
-              .json({ error: "Database query failed for latest property" });
+            console.error("Database query failed for top properties:", err);
+            return res.status(500).json({ error: "Database query failed" });
           }
-          if (!latestResult || latestResult.length === 0) {
-            return res.status(404).json({ error: "No properties found" });
-          }
-          const latestUpdatedDate = moment(latestResult[0].updated_date);
-          const fiveDaysAgo = latestUpdatedDate
-            .subtract(8, "days")
-            .format("YYYY-MM-DD HH:mm:ss");
-          let query = `SELECT * FROM properties WHERE property_status = 1 AND sub_type = "Apartment" AND sub_type != "PLOT" AND updated_date >= ?`;
-          let queryParams = [fiveDaysAgo];
-          if (property_for) {
-            query += ` AND property_for = ?`;
-            queryParams.push(property_for);
-          }
-          query += ` ORDER BY id DESC`;
-          pool.query(query, queryParams, (err, results) => {
-            if (err) {
-              return res.status(500).json({ error: "Database query failed" });
-            }
-            const shuffleArray = (array) => {
-              for (let i = array.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [array[i], array[j]] = [array[j], array[i]];
-              }
-              return array;
-            };
-            const getFirstWord = (name) => {
-              return name?.split(" ")[0]?.toLowerCase() || "";
-            };
-            const shuffledProperties = shuffleArray([...results]);
-            const uniqueProperties = [];
-            const seenFirstWords = new Set();
-            for (const property of shuffledProperties) {
+          let uniqueTopProperties = [];
+          if (topResults.length > 0) {
+            const shuffledTopProperties = shuffleArray([...topResults]);
+            const seenFirstWords = new Set(
+              uniqueNewProperties.map((p) => getFirstWord(p.property_name))
+            );
+            for (const property of shuffledTopProperties) {
               const firstWord = getFirstWord(property.property_name);
               if (!seenFirstWords.has(firstWord)) {
                 seenFirstWords.add(firstWord);
-                uniqueProperties.push(property);
+                uniqueTopProperties.push(property);
               }
-              if (uniqueProperties.length >= 15) break;
+              if (uniqueTopProperties.length >= remainingCount) break;
             }
-            const finalProperties = uniqueProperties
-              .sort(() => Math.random() - 0.5)
-              .slice(0, 8);
-            res.status(200).json({
+          }
+          const combinedProperties = [
+            ...uniqueNewProperties,
+            ...uniqueTopProperties,
+          ].slice(0, 10);
+          if (combinedProperties.length < 10) {
+            const stillNeeded = 10 - combinedProperties.length;
+            let fallbackQuery = `SELECT * FROM properties WHERE property_status = 1 AND sub_type != "PLOT"`;
+            let fallbackParams = [];
+            if (property_for) {
+              fallbackQuery += ` AND property_for = ?`;
+              fallbackParams.push(property_for);
+            }
+            const allSelectedIds = combinedProperties
+              .map((p) => p.id)
+              .join(",");
+            if (allSelectedIds) {
+              fallbackQuery += ` AND id NOT IN (${allSelectedIds})`;
+            }
+            fallbackQuery += ` ORDER BY id DESC LIMIT ?`;
+            fallbackParams.push(stillNeeded);
+            pool.query(
+              fallbackQuery,
+              fallbackParams,
+              (err, fallbackResults) => {
+                if (err) {
+                  console.error(
+                    "Database query failed for fallback properties:",
+                    err
+                  );
+                  return res
+                    .status(500)
+                    .json({ error: "Database query failed" });
+                }
+                const finalProperties = [
+                  ...combinedProperties,
+                  ...fallbackResults.slice(0, stillNeeded),
+                ].sort(() => Math.random() - 0.5);
+                return res.status(200).json({
+                  count: finalProperties.length,
+                  properties: finalProperties,
+                });
+              }
+            );
+          } else {
+            const finalProperties = combinedProperties.sort(
+              () => Math.random() - 0.5
+            );
+            return res.status(200).json({
               count: finalProperties.length,
               properties: finalProperties,
             });
-          });
+          }
         });
-      }
+      });
     } catch (error) {
       console.error("Error fetching latest properties:", error);
       res.status(500).json({ message: "Internal Server Error" });

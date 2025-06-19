@@ -646,10 +646,10 @@ module.exports = {
       unique_property_id,
       property_name,
       plot_number,
-      google_address,
       builder_name,
       villa_number,
     } = req.body;
+
     if (!unique_property_id) {
       return res.status(400).json({
         status: "error",
@@ -680,6 +680,7 @@ module.exports = {
           message: "Property not found",
         });
       }
+      const google_address = `${locality}, ${city_id}, ${state_id}`;
       const property = propertyRows[0];
       const updated_date = moment().format("YYYY-MM-DD");
       await conn.query(
