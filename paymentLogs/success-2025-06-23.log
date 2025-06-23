@@ -1,0 +1,2 @@
+[10:47:13] {"message":"Subscription and payment recorded successfully","user_id":"271","user_type":6,"mappedPackageName":"custom","status":"processing","amount":"1.00","payment_reference":"pay_QkWEYYfdCkqCng","payment_mode":"online","payment_gateway":"Razorpay"}
+[11:05:09] {"message":"Subscription and payment recorded successfully","user_id":"271","user_type":6,"mappedPackageName":"custom","status":"processing","amount":"1.00","payment_reference":"pay_QkWXXfysbSzAT1","payment_mode":"online","payment_gateway":"Razorpay"}

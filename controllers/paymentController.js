@@ -7,7 +7,6 @@ const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
 const logger = require("../logger");
-
 const sendWhatsappLeads = async (name, mobile) => {
   const payload = {
     channelId: "67a9e14542596631a8cfc87b",
@@ -323,12 +322,10 @@ const generateInvoicePDF = (subscription) => {
       const startX = 30;
       const startY = 230;
       const lineHeight = 14;
-
       doc
         .font(fonts.regular)
         .fontSize(sizes.subtitle)
         .fillColor(colors.secondary);
-
       doc.text(invoiceData.client.name, startX, startY);
       doc.text(
         `Mobile: ${invoiceData.client.mobile}`,
@@ -350,7 +347,6 @@ const generateInvoicePDF = (subscription) => {
         startX,
         startY + lineHeight * 4
       );
-
       const tableTop = 310;
       const colWidths = [100, 100, 100, 100, 100, 100];
       const tableX = [30, 130, 230, 330, 430, 510];
@@ -495,7 +491,6 @@ const generateInvoicePDF = (subscription) => {
     }
   });
 };
-
 module.exports = {
   createOrder: (req, res) => {
     const { amount, currency, user_id, city } = req.body;
@@ -579,6 +574,8 @@ module.exports = {
       mobile,
       email,
       subscription_package,
+      listingsLimit,
+      price,
       payment_amount,
       payment_reference,
       payment_mode,
@@ -599,6 +596,19 @@ module.exports = {
           "Missing required fields: user_id, subscription_package, or payment_status",
       });
     }
+    const userTypeMap = {
+      1: "admin",
+      2: "user",
+      3: "builder",
+      4: "agent",
+      5: "owner",
+      6: "channel_partner",
+      7: "manager",
+      8: "telecaller",
+      9: "marketing_executive",
+      10: "customer_support",
+      11: "customer_service",
+    };
     const packageEnumMap = {
       "Free Listing": "free",
       Basic: "basic",
@@ -607,6 +617,7 @@ module.exports = {
       Custom: "custom",
     };
     const mappedPackageName = packageEnumMap[subscription_package];
+
     if (!mappedPackageName) {
       return res.status(400).json({
         success: false,
@@ -745,6 +756,26 @@ module.exports = {
             user_id,
           ]
         );
+        if (
+          finalPaymentStatus === "processing" &&
+          subscription_package === "Custom"
+        ) {
+          const package_for = userTypeMap[user_type] || "unknown";
+          if (!listingsLimit || isNaN(listingsLimit)) {
+            throw new Error(
+              "Invalid or missing listingsLimit for Custom package"
+            );
+          }
+          if (!price || isNaN(price)) {
+            throw new Error("Invalid or missing price for Custom package");
+          }
+          await pool.promise().execute(
+            `INSERT INTO package_listing_limits
+             (package_for, package_name, number_of_listings, price, user_id) 
+             VALUES (?, ?, ?, ?, ?)`,
+            [package_for, subscription_package, listingsLimit, price, user_id]
+          );
+        }
         if (finalPaymentStatus === "processing" && invoice_number) {
           const subscriptionData = {
             id: user_id,
@@ -967,10 +998,14 @@ module.exports = {
         }
         const paymentData = {
           user_id: linkEntity.notes?.user_id || "",
+          user_type: linkEntity.notes?.user_type || "",
           name: linkEntity.notes?.name || "",
           mobile: linkEntity.notes?.mobile || "",
           email: linkEntity.notes?.email || "",
           subscription_package: linkEntity.notes?.subscription_package || "",
+          listingsLimit:
+            linkEntity.notes?.subscription_package.listingsLimit || "",
+          price: linkEntity.notes?.subscription_package.price || "",
           payment_amount: linkEntity.amount / 100,
           payment_reference: linkEntity.id,
           payment_mode: "razorpay_link",
@@ -1087,6 +1122,7 @@ module.exports = {
       amount,
       currency = "INR",
       user_id,
+      user_type,
       name,
       mobile,
       email,
@@ -1191,6 +1227,7 @@ module.exports = {
               callback_method: "get",
               notes: {
                 user_id,
+                user_type,
                 name,
                 mobile,
                 email,
@@ -1229,6 +1266,8 @@ module.exports = {
       email,
       city,
       subscription_package,
+      listingsLimit,
+      price,
       payment_amount,
       payment_reference,
       payment_mode,
@@ -1251,6 +1290,19 @@ module.exports = {
           "Missing required fields: user_id, subscription_package, payment_status, or razorpay_payment_id",
       });
     }
+    const userTypeMap = {
+      1: "admin",
+      2: "user",
+      3: "builder",
+      4: "agent",
+      5: "owner",
+      6: "channel_partner",
+      7: "manager",
+      8: "telecaller",
+      9: "marketing_executive",
+      10: "customer_support",
+      11: "customer_service",
+    };
     const packageEnumMap = {
       "Free Listing": "free",
       Basic: "basic",
@@ -1350,10 +1402,31 @@ module.exports = {
             user_id,
           ]
         );
+        if (
+          finalPaymentStatus === "processing" &&
+          subscription_package === "Custom"
+        ) {
+          const package_for = user_type || "unknown";
+          if (!listingsLimit || isNaN(listingsLimit)) {
+            throw new Error(
+              "Invalid or missing listingsLimit for Custom package"
+            );
+          }
+          if (!price || isNaN(price)) {
+            throw new Error("Invalid or missing price for Custom package");
+          }
+          await pool.promise().execute(
+            `INSERT INTO package_listing_limits
+             (package_for, package_name, number_of_listings, price, user_id) 
+             VALUES (?, ?, ?, ?, ?)`,
+            [package_for, subscription_package, listingsLimit, price, user_id]
+          );
+        }
         if (finalPaymentStatus === "processing" && invoice_number) {
           const subscriptionData = {
             id: user_id,
             invoice_number,
+            user_type: user_type,
             created_at: moment().toISOString(),
             name,
             mobile,
@@ -1667,11 +1740,9 @@ module.exports = {
   },
   getAllSubscriptionDetails: async (req, res) => {
     const { user_id } = req.query;
-
     if (!user_id) {
       return res.status(400).json({ error: "Missing user_id parameter" });
     }
-
     try {
       const query = `
         SELECT * FROM payment_details 
@@ -1679,9 +1750,7 @@ module.exports = {
         AND subscription_status IN ('active', 'processing')
         ORDER BY id DESC
       `;
-
       const [results] = await pool.promise().query(query, [user_id]);
-
       return res.status(200).json({ subscriptions: results });
     } catch (error) {
       console.error("Error fetching subscription details:", error);
