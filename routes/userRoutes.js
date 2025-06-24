@@ -51,5 +51,5 @@ router.get(
 router.post("/createShorts", userController.createShorts);
 router.get("/getAllShorts", userController.getAllShorts);
 router.get("/getUserCompleteActivity", userController.getUserCompleteActivity);
-
+router.post("/updateProfileStatus", userController.updateProfileStatus);
 module.exports = router;

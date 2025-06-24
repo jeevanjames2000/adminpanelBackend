@@ -1297,4 +1297,37 @@ module.exports = {
       res.status(500).json({ error: "Internal Server Error" });
     }
   },
+
+  updateProfileStatus: async (req, res) => {
+    const { user_id, verified } = req.body;
+
+    if (!user_id) {
+      return res.status(400).json({ message: "User ID is required" });
+    }
+
+    if (typeof verified === "undefined" || (verified !== 0 && verified !== 1)) {
+      return res.status(400).json({ message: "Verified value must be 0 or 1" });
+    }
+
+    try {
+      const currentDate = moment().format("YYYY-MM-DD");
+      const currentTime = moment().format("HH:mm:ss");
+
+      const query = `
+      UPDATE users
+      SET verified = ?, updated_date = ?, updated_time = ?
+      WHERE id = ?
+    `;
+      const values = [verified, currentDate, currentTime, user_id];
+
+      await pool.promise().query(query, values);
+
+      return res
+        .status(200)
+        .json({ message: "Profile status updated successfully" });
+    } catch (error) {
+      console.error("updateProfileStatus error:", error);
+      return res.status(500).json({ message: "Internal server error" });
+    }
+  },
 };

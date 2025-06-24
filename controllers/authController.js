@@ -192,7 +192,6 @@ module.exports = {
       google_address,
       sub_type,
     } = req.body;
-    console.log(
       name,
       mobile,
       ownerName,
@@ -245,12 +244,9 @@ module.exports = {
   AuthLoginNew: async (req, res) => {
     const { mobile } = req.body;
     try {
-      const result = await pool.execute(
-        "SELECT * FROM users WHERE mobile = 6302816551",
-        [mobile]
-      );
-      console.log("result: ", result);
-      const rows = result[0];
+      const [rows] = await pool
+        .promise()
+        .query("SELECT * FROM users WHERE mobile = ?", [mobile]);
       if (rows.length === 0) {
         return res.status(404).json({
           status: "error_user_not_found",
