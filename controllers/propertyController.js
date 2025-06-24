@@ -139,6 +139,20 @@ module.exports = {
       user_type,
       city,
     } = req.body;
+    if ((user_type === 4 || user_type === "4") && property_for !== "Rent") {
+      return res.status(403).json({
+        status: "error",
+        message: "Agents are only allowed to list properties for Rent.",
+        data: {
+          allowedListings: 0,
+          uploadedCount: 0,
+          remaining: 0,
+          subscriptionPackage: null,
+          userType: user_type,
+          city,
+        },
+      });
+    }
     if (!user_id) {
       return res.status(400).json({
         status: "error",
@@ -649,7 +663,6 @@ module.exports = {
       builder_name,
       villa_number,
     } = req.body;
-
     if (!unique_property_id) {
       return res.status(400).json({
         status: "error",

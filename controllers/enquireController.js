@@ -1,6 +1,7 @@
 const moment = require("moment");
 const pool = require("../config/db");
 const { default: axios } = require("axios");
+
 module.exports = {
   getAllEnquiries: (req, res) => {
     const query = `SELECT * FROM searched_properties ORDER BY id DESC`;
@@ -280,7 +281,7 @@ module.exports = {
     });
   },
   sendLeadTextMessage: async (req, res) => {
-    const { mobile, ownerName, name, property_for, property_name, location } =
+    const { ownerMobile, mobile, name, location, sub_type, property_cost } =
       req.body;
     if (!mobile) {
       return res.status(400).json({
@@ -292,8 +293,8 @@ module.exports = {
     const pwd = "Meet@123";
     const sender_id = "METOWR";
     const peid = "1101542890000073814";
-    const tpid = "1107169859635676195";
-    const message = `Hello ${ownerName}! Exciting update! You've got a new client inquiry from Meetowner🎉  ${name} ${mobile} has shown interest in your listings for ${property_for} at ${property_name} in ${location} -MEET OWNER`;
+    const tpid = "1107173821300933878";
+    const message = `Dear partner, ${name} ${mobile} is Interested in your ${sub_type} at ${property_cost} in ${location} -MEET OWNER`;
     const api_url = "http://tra.bulksmshyderabad.co.in/websms/sendsms.aspx";
     try {
       const response = await axios.get(api_url, {
@@ -301,7 +302,7 @@ module.exports = {
           userid: user_id,
           password: pwd,
           sender: sender_id,
-          mobileno: mobile,
+          mobileno: ownerMobile,
           msg: message,
           peid: peid,
           tpid: tpid,

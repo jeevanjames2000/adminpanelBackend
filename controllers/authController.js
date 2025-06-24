@@ -192,14 +192,7 @@ module.exports = {
       google_address,
       sub_type,
     } = req.body;
-      name,
-      mobile,
-      ownerName,
-      ownerMobile,
-      property_name,
-      google_address,
-      sub_type
-    );
+
     const payload = {
       channelId: "67a9e14542596631a8cfc87b",
       channelType: "whatsapp",
@@ -243,25 +236,34 @@ module.exports = {
   },
   AuthLoginNew: async (req, res) => {
     const { mobile } = req.body;
+    console.log("mobile: ", mobile);
+
     try {
       const [rows] = await pool
         .promise()
         .query("SELECT * FROM users WHERE mobile = ?", [mobile]);
+
+      console.log("rows: ", rows);
+
       if (rows.length === 0) {
         return res.status(404).json({
           status: "error_user_not_found",
           message: "User not found",
         });
       }
+
       const user = rows[0];
       const user_id = user.id.toString();
+
       const accessToken = jwt.sign({ user_id }, process.env.JWT_SECRET, {
         expiresIn: "7d",
       });
+
       const user_details = {
         user_id,
         ...user,
       };
+
       return res.status(200).json({
         status: "success",
         message: "Login successful",
@@ -276,6 +278,7 @@ module.exports = {
       });
     }
   },
+
   AuthRegisterNew: async (req, res) => {
     const {
       userType,
