@@ -221,8 +221,12 @@ cron.schedule("0 */6 * * *", () => {
     }
   });
 });
-cron.schedule("*/5 * * * * *", () => {
-  console.log("Running subscription expiry job at midnight...");
+cron.schedule("5 0 * * *", () => {
+  console.log(
+    `Running subscription expiry job at ${new Date().toLocaleString("en-IN", {
+      timeZone: "Asia/Kolkata",
+    })}...`
+  );
   const expiryQuery = `
     SELECT user_id, id, city
     FROM payment_details

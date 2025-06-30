@@ -18,5 +18,10 @@ router.get(
   "/getAllSubscriptionStatus",
   paymentController.getAllSubscriptionDetails
 );
+router.get(
+  "/getAllSubscriptionsHistory",
+  paymentController.getAllSubscriptionsHistory
+);
+
 // router.post("/sendWhatsappLeads", paymentController.sendWhatsappLeads);
 module.exports = router;

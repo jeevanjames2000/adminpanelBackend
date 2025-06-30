@@ -36,10 +36,7 @@ const sendWhatsappLeads = async (name, mobile) => {
       { headers }
     );
     response.status === 202;
-    console.log("response: ", response);
-  } catch (error) {
-    console.log("error: ", error);
-  }
+  } catch (error) {}
 };
 const sendInvoice = async (name, mobile, amount, invoiceUrl) => {
   const payload = {
@@ -617,7 +614,6 @@ module.exports = {
       Custom: "custom",
     };
     const mappedPackageName = packageEnumMap[subscription_package];
-
     if (!mappedPackageName) {
       return res.status(400).json({
         success: false,
@@ -1755,6 +1751,217 @@ module.exports = {
     } catch (error) {
       console.error("Error fetching subscription details:", error);
       return res.status(500).json({ message: "Internal Server Error" });
+    }
+  },
+  getAllSubscriptionsHistory: async (req, res) => {
+    const { user_id, city } = req.query;
+    if (!user_id) {
+      return res.status(400).json({ error: "Missing user_id parameter" });
+    }
+    const userTypeMap = {
+      1: "admin",
+      2: "user",
+      3: "builder",
+      4: "agent",
+      5: "owner",
+      6: "channel_partner",
+      7: "manager",
+      8: "telecaller",
+      9: "marketing_executive",
+      10: "customer_support",
+      11: "customer_service",
+    };
+    try {
+      const userQuery = `SELECT user_type, name, email, mobile, city FROM users WHERE id = ?`;
+      const [userResult] = await pool.promise().query(userQuery, [user_id]);
+      if (!userResult.length) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      const { user_type, name, email, mobile, city: userCity } = userResult[0];
+      const userTypeKey = userTypeMap[user_type] || "unknown";
+      let subscriptionQuery = `
+        SELECT 
+          id,
+          name,
+          user_id,
+          user_type,
+          mobile,
+          email,
+          subscription_package,
+          subscription_start_date,
+          subscription_expiry_date,
+          subscription_status,
+          payment_status,
+          payment_amount,
+          payment_mode,
+          payment_gateway,
+          transaction_time,
+          city,
+          invoice_number,
+          invoice_url,
+          actual_amount,
+          gst,
+          sgst,
+          gst_percentage,
+          gst_number,
+          rera_number
+        FROM payment_details 
+        WHERE user_id = ?
+      `;
+      const queryParams = [user_id];
+      if (city) {
+        subscriptionQuery += ` AND city = ?`;
+        queryParams.push(city);
+      }
+      subscriptionQuery += ` ORDER BY created_at DESC`;
+      const [subscriptions] = await pool
+        .promise()
+        .query(subscriptionQuery, queryParams);
+      let leadsCountQuery = `
+        SELECT COUNT(*) AS leadsCount
+        FROM contact_seller cs
+        LEFT JOIN properties p ON cs.unique_property_id = p.unique_property_id
+        WHERE p.user_id = ?
+      `;
+      const leadsCountParams = [user_id];
+      if (city) {
+        leadsCountQuery += ` AND p.city_id = ?`;
+        leadsCountParams.push(city);
+      }
+      if (!subscriptions.length) {
+        let uploadedCount = 0;
+        if (city) {
+          const propertyCountQuery = `SELECT COUNT(*) AS count FROM properties WHERE user_id = ? AND city_id = ?`;
+          const [propertyCountResult] = await pool
+            .promise()
+            .query(propertyCountQuery, [user_id, city]);
+          uploadedCount = propertyCountResult[0].count;
+        } else {
+          const propertyCountQuery = `SELECT COUNT(*) AS count FROM properties WHERE user_id = ?`;
+          const [propertyCountResult] = await pool
+            .promise()
+            .query(propertyCountQuery, [user_id]);
+          uploadedCount = propertyCountResult[0].count;
+        }
+        const [limitResult] = await pool
+          .promise()
+          .query(
+            `SELECT number_of_listings FROM package_listing_limits WHERE package_name = ? AND package_for = ?`,
+            ["Free Listing", userTypeKey]
+          );
+        const allowedListings = limitResult.length
+          ? limitResult[0].number_of_listings
+          : 0;
+        const remaining = Math.max(0, allowedListings - uploadedCount);
+        const [leadsCountResult] = await pool
+          .promise()
+          .query(leadsCountQuery, leadsCountParams);
+        const leadsCount = leadsCountResult[0].leadsCount;
+        return res.status(200).json({
+          subscriptions: [
+            {
+              id: null,
+              name: name || null,
+              user_id,
+              user_type,
+              mobile: mobile || null,
+              email: email || null,
+              subscription_package: "Free Listing",
+              subscription_start_date: null,
+              subscription_expiry_date: null,
+              subscription_status: "inactive",
+              payment_status: null,
+              payment_amount: null,
+              payment_mode: null,
+              payment_gateway: null,
+              transaction_time: null,
+              city: userCity || city || null,
+              invoice_number: null,
+              invoice_url: null,
+              actual_amount: null,
+              gst: null,
+              sgst: null,
+              gst_percentage: null,
+              gst_number: null,
+              rera_number: null,
+              allowedListings,
+              uploadedCount,
+              remaining,
+              leadsCount,
+              userType: userTypeKey,
+            },
+          ],
+        });
+      }
+      const enhancedSubscriptions = await Promise.all(
+        subscriptions.map(async (subscription) => {
+          const effective_package =
+            subscription.subscription_package || "Free Listing";
+          const normalizedPackage = effective_package
+            .trim()
+            .toLowerCase()
+            .replace(/ /g, "_");
+          const displayPackageMap = {
+            free: "Free Listing",
+            free_listing: "Free Listing",
+            basic: "Basic",
+            prime: "Prime",
+            prime_plus: "Prime Plus",
+            custom: "Custom",
+          };
+          const displayPackage =
+            displayPackageMap[normalizedPackage] || effective_package;
+          let propertyCountQuery;
+          let propertyCountParams;
+          if (effective_package === "Free Listing" || !subscription.city) {
+            propertyCountQuery = `SELECT COUNT(*) AS count FROM properties WHERE user_id = ?`;
+            propertyCountParams = [user_id];
+          } else {
+            propertyCountQuery = `SELECT COUNT(*) AS count FROM properties WHERE user_id = ? AND city_id = ?`;
+            propertyCountParams = [user_id, subscription.city];
+          }
+          const [propertyCountResult] = await pool
+            .promise()
+            .query(propertyCountQuery, propertyCountParams);
+          const uploadedCount = propertyCountResult[0].count;
+          const [limitResult] = await pool
+            .promise()
+            .query(
+              `SELECT number_of_listings FROM package_listing_limits WHERE package_name = ? AND package_for = ?`,
+              [displayPackage, userTypeKey]
+            );
+          const allowedListings = limitResult.length
+            ? limitResult[0].number_of_listings
+            : 0;
+          const remaining = Math.max(0, allowedListings - uploadedCount);
+          const [leadsCountResult] = await pool
+            .promise()
+            .query(leadsCountQuery, leadsCountParams);
+          const leadsCount = leadsCountResult[0].leadsCount;
+          return {
+            ...subscription,
+            subscription_package: displayPackage,
+            allowedListings,
+            uploadedCount,
+            remaining,
+            leadsCount,
+            userType: userTypeKey,
+          };
+        })
+      );
+      return res.status(200).json({ subscriptions: enhancedSubscriptions });
+    } catch (error) {
+      console.error("Error fetching subscription details:", error);
+      return res.status(500).json({
+        message: "Internal Server Error",
+        data: {
+          subscriptions: [],
+          allowedListings: 0,
+          uploadedCount: 0,
+          remaining: 0,
+          leadsCount: 0,
+        },
+      });
     }
   },
 };
