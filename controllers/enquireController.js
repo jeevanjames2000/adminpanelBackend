@@ -84,6 +84,39 @@ module.exports = {
       return res.status(200).json({ results });
     });
   },
+  getUserContactSellersByID: (req, res) => {
+    const { user_id, unique_property_id } = req.query;
+
+    // Validate both required
+    if (!user_id || !unique_property_id) {
+      return res.status(400).json({
+        error: "Both user_id and unique_property_id are required",
+      });
+    }
+
+    const query = `
+      SELECT * FROM contact_seller 
+      WHERE user_id = ? AND unique_property_id = ?
+      ORDER BY id DESC
+    `;
+
+    const values = [user_id, unique_property_id];
+
+    pool.query(query, values, (err, results) => {
+      if (err) {
+        console.error("Error fetching contact sellers:", err);
+        return res.status(500).json({ error: "Database error" });
+      }
+
+      if (results.length === 0) {
+        return res.status(404).json({
+          message: "No contact sellers found for the given user and property",
+        });
+      }
+
+      return res.status(200).json({ results });
+    });
+  },
   postEnquiry: (req, res) => {
     const {
       property_id,

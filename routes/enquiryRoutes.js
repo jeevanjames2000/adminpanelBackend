@@ -10,6 +10,10 @@ router.get(
   enquiryController.getAllContactSellersByFilter
 );
 router.get("/getUserContactSellers", enquiryController.getUserContactSellers);
+router.get(
+  "/getUserContactSellersByID",
+  enquiryController.getUserContactSellersByID
+);
 router.post("/postEnquiry", updateLastActive, enquiryController.postEnquiry);
 router.post(
   "/contactSeller",

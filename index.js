@@ -16,6 +16,7 @@ const useragent = require("express-useragent");
 const app = express();
 const path = require("path");
 app.use(useragent.express());
+// require("./cronJobs");
 app.use(express.json());
 app.use("/uploads", express.static(path.join(__dirname, "uploads")));
 app.use(
