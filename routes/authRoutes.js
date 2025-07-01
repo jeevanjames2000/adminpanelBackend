@@ -15,4 +15,6 @@ router.post("/register", authController.AuthRegister);
 router.post("/loginActivity", updateLastActive, authController.LoginActivity);
 router.get("/sendOtpSellers", authController.sendOtpSellers);
 router.post("/verifyOtpSellers", authController.verifyOtpSellers);
+router.get("/sendOtpAdmin", authController.sendOtpAdmin);
+router.post("/verifyOtpAdmin", authController.verifyOtpAdmin);
 module.exports = router;

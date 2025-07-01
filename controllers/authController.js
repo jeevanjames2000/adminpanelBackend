@@ -565,4 +565,109 @@ module.exports = {
       });
     }
   },
+  sendOtpAdmin: async (req, res) => {
+    const { mobile } = req.query;
+    if (!mobile) {
+      return res.status(200).json({
+        status: "error",
+        message: "Mobile number is required",
+      });
+    }
+    try {
+      const user_id = "meetowner2023";
+      const pwd = "Meet@123";
+      const sender_id = "METOWR";
+      const sys_otp = Math.floor(100000 + Math.random() * 900000).toString();
+      const message = `Dear customer, ${sys_otp} is the OTP for Login it will expire in 2 minutes. Don't share to anyone -MEET OWNER`;
+      const api_url = "http://tra.bulksmshyderabad.co.in/websms/sendsms.aspx";
+      const params = {
+        userid: user_id,
+        password: pwd,
+        sender: sender_id,
+        mobileno: mobile,
+        msg: message,
+        peid: "1101542890000073814",
+        tpid: "1107169859354543707",
+      };
+      const hashedOtp = await bcrypt.hash(sys_otp, 10);
+      const expiresAt = new Date(Date.now() + 2 * 60 * 1000);
+      const [rows] = await pool
+        .promise()
+        .query("SELECT id FROM employees WHERE mobile = ?", [mobile]);
+      if (rows.length === 0) {
+        await pool
+          .promise()
+          .query(
+            "INSERT INTO employees (mobile, otp_hash, otp_expires_at) VALUES (?, ?, ?)",
+            [mobile, hashedOtp, expiresAt]
+          );
+      } else {
+        await pool
+          .promise()
+          .query(
+            "UPDATE employees SET otp_hash = ?, otp_expires_at = ? WHERE mobile = ?",
+            [hashedOtp, expiresAt, mobile]
+          );
+      }
+      const response = await axios.get(api_url, { params });
+      return res.status(200).json({
+        status: "success",
+        message: "OTP sent successfully!",
+        apiResponse: response.data,
+      });
+    } catch (error) {
+      console.error("Send OTP Error:", error);
+      return res.status(500).json({
+        status: "error",
+        message: "Internal server error",
+      });
+    }
+  },
+  verifyOtpAdmin: async (req, res) => {
+    const { mobile, otp } = req.body;
+    if (!mobile || !otp) {
+      return res.status(400).json({
+        status: "error",
+        message: "Mobile number and OTP are required",
+      });
+    }
+    try {
+      const [rows] = await pool
+        .promise()
+        .query(
+          "SELECT otp_hash, otp_expires_at FROM employees WHERE mobile = ?",
+          [mobile]
+        );
+      if (rows.length === 0) {
+        return res.status(404).json({
+          status: "error",
+          message: "User not found",
+        });
+      }
+      const { otp_hash, otp_expires_at } = rows[0];
+      if (new Date() > new Date(otp_expires_at)) {
+        return res.status(400).json({
+          status: "error",
+          message: "OTP has expired",
+        });
+      }
+      const isMatch = await bcrypt.compare(otp, otp_hash);
+      if (!isMatch) {
+        return res.status(400).json({
+          status: "error",
+          message: "Incorrect OTP",
+        });
+      }
+      return res.status(200).json({
+        status: "success",
+        message: "OTP verified successfully!",
+      });
+    } catch (error) {
+      console.error("Verify OTP Error:", error);
+      return res.status(500).json({
+        status: "error",
+        message: "Internal server error",
+      });
+    }
+  },
 };
