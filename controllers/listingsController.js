@@ -179,6 +179,7 @@ module.exports = {
         city,
         page = 1,
         user_id,
+        furnished_status,
       } = req.query;
       const conditions = [];
       const values = [];
@@ -193,6 +194,10 @@ module.exports = {
       if (occupancy) {
         conditions.push("p.occupancy = ?");
         values.push(occupancy);
+      }
+      if (furnished_status) {
+        conditions.push("p.furnished_status = ?");
+        values.push(furnished_status);
       }
       if (property_cost) {
         const costStr = String(property_cost).trim();
