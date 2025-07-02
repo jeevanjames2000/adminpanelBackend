@@ -180,6 +180,8 @@ module.exports = {
         page = 1,
         user_id,
         furnished_status,
+        from_date,
+        to_date,
       } = req.query;
       const conditions = [];
       const values = [];
@@ -232,21 +234,40 @@ module.exports = {
         conditions.push("p.city_id = ?");
         values.push(city);
       }
+      if (from_date) {
+        if (!moment(from_date, "YYYY-MM-DD", true).isValid()) {
+          return res
+            .status(400)
+            .json({ error: "Invalid from_date format (use YYYY-MM-DD)" });
+        }
+        if (to_date) {
+          if (!moment(to_date, "YYYY-MM-DD", true).isValid()) {
+            return res
+              .status(400)
+              .json({ error: "Invalid to_date format (use YYYY-MM-DD)" });
+          }
+          conditions.push("p.updated_date BETWEEN ? AND ?");
+          values.push(from_date, to_date);
+        } else {
+          conditions.push("p.updated_date >= ?");
+          values.push(from_date);
+        }
+      }
       let searchClause = "";
       const searchValues = [];
       if (search) {
         const searchLower = `%${search.toLowerCase()}%`;
         const searchStart = `${search.toLowerCase()}%`;
         searchClause = `
-        AND (
-          LOWER(p.unique_property_id) LIKE ? OR
-          LOWER(p.property_name) LIKE ? OR
-          LOWER(p.google_address) LIKE ? OR
-          LOWER(p.location_id) LIKE ? OR
-          LOWER(u.name) LIKE ? OR
-          u.mobile LIKE ?
-        )
-      `;
+          AND (
+            LOWER(p.unique_property_id) LIKE ? OR
+            LOWER(p.property_name) LIKE ? OR
+            LOWER(p.google_address) LIKE ? OR
+            LOWER(p.location_id) LIKE ? OR
+            LOWER(u.name) LIKE ? OR
+            u.mobile LIKE ?
+          )
+        `;
         searchValues.push(
           searchLower,
           searchLower,
@@ -266,40 +287,39 @@ module.exports = {
         orderBy = "ORDER BY CAST(p.property_cost AS DECIMAL) DESC";
       }
       const limit = 150;
-      const pageNumber = parseInt(page) || 1;
+      const pageNumber = parseInt(page, 10) || 1;
       const offset = (pageNumber - 1) * limit;
       const countQuery = `
-      SELECT COUNT(*) AS total_count
-      FROM properties p
-      LEFT JOIN users u ON p.user_id = u.id
-      ${whereClause}
-      ${searchClause}
-    `;
+        SELECT COUNT(*) AS total_count
+        FROM properties p
+        LEFT JOIN users u ON p.user_id = u.id
+        ${whereClause}
+        ${searchClause}
+      `;
       const countParams = [...values, ...searchValues];
       pool.query(countQuery, countParams, (err, countResults) => {
         if (err) {
-          console.error("Count Query Error:", err);
+          console.error("Count Query Error:", err.message, err.stack);
           return res.status(500).json({ error: "Database query failed" });
         }
         const total_count = countResults[0].total_count;
         const total_pages = Math.ceil(total_count / limit);
         const dataQuery = `
-        SELECT p.*, u.name, u.email, u.mobile, u.photo, u.user_type
-        FROM properties p
-        LEFT JOIN users u ON p.user_id = u.id
-        ${whereClause}
-        ${searchClause}
-        ${orderBy}
-        LIMIT ? OFFSET ?
-      `;
+          SELECT p.*, u.name, u.email, u.mobile, u.photo, u.user_type
+          FROM properties p
+          LEFT JOIN users u ON p.user_id = u.id
+          ${whereClause}
+          ${searchClause}
+          ${orderBy}
+          LIMIT ? OFFSET ?
+        `;
         const finalParams = [...values, ...searchValues, limit, offset];
         pool.query(dataQuery, finalParams, (err, results) => {
           if (err) {
-            console.error("Property Fetch Error:", err);
+            console.error("Property Fetch Error:", err.message, err.stack);
             return res.status(500).json({ error: "Database query failed" });
           }
-          const propertyIds = results.map((row) => row.unique_property_id);
-          if (propertyIds.length === 0) {
+          if (!results.length) {
             return res.status(200).json({
               total_count,
               current_page: pageNumber,
@@ -308,6 +328,7 @@ module.exports = {
               properties: [],
             });
           }
+          const propertyIds = results.map((row) => row.unique_property_id);
           const placeholders = propertyIds.map(() => "?").join(",");
           const enquiryQuery = `
             SELECT unique_property_id, COUNT(*) AS enquiries
@@ -323,14 +344,18 @@ module.exports = {
           `;
           pool.query(enquiryQuery, propertyIds, (err, enquiryResults) => {
             if (err) {
-              console.error("Enquiries Fetch Error:", err);
+              console.error("Enquiries Fetch Error:", err.message, err.stack);
               return res
                 .status(500)
                 .json({ error: "Failed to fetch enquiries" });
             }
             pool.query(favouriteQuery, propertyIds, (err, favouriteResults) => {
               if (err) {
-                console.error("Favourites Fetch Error:", err);
+                console.error(
+                  "Favourites Fetch Error:",
+                  err.message,
+                  err.stack
+                );
                 return res
                   .status(500)
                   .json({ error: "Failed to fetch favourites" });
@@ -356,18 +381,18 @@ module.exports = {
                   unique_property_id,
                   ...rest
                 } = row;
-                const formattedDate = updated_date
-                  ? moment(updated_date).format("YYYY-MM-DD")
-                  : null;
-                const formattedTime = updated_time
-                  ? moment(updated_time, "HH:mm:ss").format("HH:mm:ss")
-                  : null;
                 return {
                   ...rest,
                   unique_property_id,
-                  updated_date: formattedDate,
-                  updated_time: formattedTime,
+                  updated_date: updated_date
+                    ? moment(updated_date).format("YYYY-MM-DD")
+                    : null,
+                  updated_time: updated_time
+                    ? moment(updated_time, "HH:mm:ss").format("HH:mm:ss")
+                    : null,
                   user: { name, email, mobile, photo, user_type },
+                  enquiries: enquiriesMap[unique_property_id] || 0,
+                  favourites: favouritesMap[unique_property_id] || 0,
                 };
               });
               const shuffled = shuffleProperties(properties, 10);
@@ -383,7 +408,7 @@ module.exports = {
         });
       });
     } catch (error) {
-      console.error("Unexpected Server Error:", error);
+      console.error("Unexpected Server Error:", error.message, error.stack);
       res.status(500).json({ error: "Internal server error" });
     }
   },
