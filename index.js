@@ -1,57 +1,88 @@
 require("dotenv").config();
 const express = require("express");
 const cors = require("cors");
-const Routes = require("./routes/mainRoutes");
-const authRoutes = require("./routes/authRoutes");
-const userRoutes = require("./routes/userRoutes");
-const listingRoutes = require("./routes/listingRoutes");
-const propertyRoutes = require("./routes/propertyRoutes");
-const favRoutes = require("./routes/favRoutes");
-const enquiryRoutes = require("./routes/enquiryRoutes");
-const awsRoutes = require("./routes/awsRoutes");
-const adRoutes = require("./routes/adsRoutes");
-const packages = require("./routes/packageRoute");
-const paymentRoutes = require("./routes/paymentRoutes");
+const http = require("http");
+const socketIO = require("socket.io");
+const path = require("path");
 const useragent = require("express-useragent");
 const app = express();
-const path = require("path");
-app.use(useragent.express());
-// require("./cronJobs");
-app.use(express.json());
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-app.use(
-  cors({
-    origin: [
+const server = http.createServer(app);
+const io = socketIO(server, {
+  cors: {
+    origin: process.env.CORS_ORIGINS?.split(",") || [
       "http://localhost:3003",
       "http://localhost:3000",
       "http://localhost:3002",
     ],
-    methods: "GET,HEAD,PUT,PATCH,POST,DELETE",
-    allowedHeaders:
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization",
+    methods: ["GET", "POST"],
+    credentials: true,
+  },
+  pingTimeout: 60000,
+});
+app.use(useragent.express());
+app.use(express.json());
+app.use("/uploads", express.static(path.join(__dirname, "uploads")));
+app.use(
+  cors({
+    origin: process.env.CORS_ORIGINS?.split(",") || [
+      "http://localhost:3003",
+      "http://localhost:3000",
+      "http://localhost:3002",
+    ],
+    methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
     credentials: true,
   })
 );
 const noCacheMiddleware = (req, res, next) => {
-  res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
-  res.setHeader("Pragma", "no-cache");
-  res.setHeader("Expires", "0");
+  res.set({
+    "Cache-Control": "no-cache, no-store, must-revalidate",
+    Pragma: "no-cache",
+    Expires: "0",
+  });
   next();
 };
-
-app.use("/property/v1", noCacheMiddleware);
-app.use("/listings/v1", noCacheMiddleware);
-app.use("/auth/v1", authRoutes);
-app.use("/uploads", express.static(path.join(__dirname, "uploads")));
-app.use("/api/v1", Routes);
-app.use("/user/v1", userRoutes);
-app.use("/listings/v1", listingRoutes);
-app.use("/property/v1", propertyRoutes);
-app.use("/fav/v1", favRoutes);
-app.use("/enquiry/v1", enquiryRoutes);
-app.use("/awsS3/v1", awsRoutes);
-app.use("/adAssets/v1", adRoutes);
-app.use("/packages/v1", packages);
-app.use("/payments", paymentRoutes);
+const routes = [
+  { path: "/auth/v1", route: require("./routes/authRoutes") },
+  { path: "/api/v1", route: require("./routes/mainRoutes") },
+  { path: "/user/v1", route: require("./routes/userRoutes") },
+  {
+    path: "/listings/v1",
+    route: require("./routes/listingRoutes"),
+    useCache: true,
+  },
+  {
+    path: "/property/v1",
+    route: require("./routes/propertyRoutes"),
+    useCache: true,
+  },
+  { path: "/fav/v1", route: require("./routes/favRoutes") },
+  { path: "/enquiry/v1", route: require("./routes/enquiryRoutes") },
+  { path: "/awsS3/v1", route: require("./routes/awsRoutes") },
+  { path: "/adAssets/v1", route: require("./routes/adsRoutes") },
+  { path: "/packages/v1", route: require("./routes/packageRoute") },
+  { path: "/payments", route: require("./routes/paymentRoutes") },
+  { path: "/live", route: require("./routes/liveRoutes") },
+];
+routes.forEach(({ path, route, useCache }) => {
+  app.use(path, useCache ? [noCacheMiddleware, route] : route);
+});
+io.on("connection", (socket) => {
+  console.log(`New client connected: ${socket.id}`);
+  socket.on("disconnect", () => {
+    console.log(`Client disconnected: ${socket.id}`);
+  });
+});
+require("./controllers/liveController").init(io);
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+const { pool } = require("./config/db");
+process.on("SIGTERM", () => {
+  console.log("Received SIGTERM. Performing graceful shutdown...");
+  server.close(() => {
+    pool.end(() => {
+      console.log("Database connection closed");
+      process.exit(0);
+    });
+  });
+});

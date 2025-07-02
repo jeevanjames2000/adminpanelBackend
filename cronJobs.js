@@ -286,3 +286,36 @@ cron.schedule("5 0 * * *", () => {
     }
   });
 });
+cron.schedule(
+  "0 0 * * *",
+  () => {
+    console.log(
+      `Running live_notifications cleanup at ${new Date().toLocaleString(
+        "en-IN",
+        {
+          timeZone: "Asia/Kolkata",
+        }
+      )}...`
+    );
+    const deleteQuery = `
+    DELETE FROM live_notifications
+    WHERE sent_date < CURDATE()
+  `;
+    pool.query(deleteQuery, (err, results) => {
+      if (err) {
+        console.error(
+          "Error deleting old live_notifications:",
+          err.message,
+          err.stack
+        );
+        return;
+      }
+      console.log(
+        `Deleted ${results.affectedRows} old live_notifications records.`
+      );
+    });
+  },
+  {
+    timezone: "Asia/Kolkata",
+  }
+);
