@@ -150,7 +150,7 @@ module.exports = {
     }
   },
   sendGallaboxOTP: async (req, res) => {
-    const { mobile } = req.body;
+    const { mobile, countryCode } = req.body;
     const generatedOtp = Math.floor(1000 + Math.random() * 9000);
     try {
       const response = await axios.post(
@@ -158,7 +158,7 @@ module.exports = {
         {
           channelId: "67a9e14542596631a8cfc87b",
           channelType: "whatsapp",
-          recipient: { name: "Hello", phone: `91${mobile}` },
+          recipient: { name: "Hello", phone: `${countryCode}${mobile}` },
           whatsapp: {
             type: "template",
             template: {
@@ -175,6 +175,7 @@ module.exports = {
           },
         }
       );
+      console.log("response: ", response.data, generatedOtp);
       res.json({ success: true, data: response.data, otp: generatedOtp });
     } catch (err) {
       console.error("Gallabox OTP error:", err.response?.data || err.message);

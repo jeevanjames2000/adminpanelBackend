@@ -133,7 +133,7 @@ module.exports = {
           updated_time,
           ...property
         } = row;
-        const formattedDate = updated_date
+        const formattedDate = updated_date            
           ? moment(updated_date).format("YYYY-MM-DD")
           : null;
         const formattedTime = updated_time
