@@ -1168,7 +1168,35 @@ module.exports = {
   },
   getUserCompleteActivity: async (req, res) => {
     const { user_type, user_id, name, search } = req.query;
-    let baseQuery = "SELECT * FROM users";
+    let baseQuery = `
+    SELECT 
+      id,
+      user_type,
+      name,
+      mobile,
+      email,
+      photo,
+      status,
+      created_date,
+      created_time,
+      updated_date,
+      updated_time,
+      state,
+      city,
+      address,
+      pincode,
+      gst_number,
+      rera_number,
+      uploaded_from_seller_panel,
+      designation,
+      subscription_package,
+      subscription_start_date,
+      subscription_expiry_date,
+      subscription_status,
+      created_by
+    FROM users
+  `;
+
     let countQuery = "SELECT COUNT(*) AS count FROM users";
     const whereClauses = [];
     const values = [];
@@ -1231,11 +1259,27 @@ module.exports = {
         WHERE pv.user_id IN (${placeholders})
       `;
       const favouritesQuery = `
-        SELECT f.User_user_id,f.userName,f.userMobile,f.userEmail,f.unique_property_id,f.property_name,f.sub_type,f.property_for,f.city_id,f.location_id,f.property_cost,f.property_in,f.searched_on_date,f.searched_on_time, p.property_name, p.location_id, p.google_address 
-        FROM favourites f 
-        LEFT JOIN properties p ON f.unique_property_id = p.unique_property_id 
-        WHERE f.User_user_id IN (${placeholders})
-      `;
+      SELECT 
+        f.user_id,
+        f.unique_property_id,
+        p.property_name,
+        p.sub_type,
+        p.property_for,
+        p.city_id,
+        p.location_id,
+        p.property_cost,
+        p.property_in,
+        p.google_address,
+        u.name AS userName,
+        u.mobile AS userMobile,
+        u.email AS userEmail
+      FROM favourites f
+      LEFT JOIN properties p ON f.unique_property_id = p.unique_property_id
+      LEFT JOIN users u ON f.user_id = u.id
+      WHERE f.user_id IN (${placeholders})
+      GROUP BY f.user_id, f.unique_property_id
+    `;
+
       const [[searched], [contacted], [viewed], [favourites]] =
         await Promise.all([
           pool.promise().query(searchQuery, searchParams),
