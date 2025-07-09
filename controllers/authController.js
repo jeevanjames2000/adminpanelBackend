@@ -290,6 +290,8 @@ module.exports = {
       gst_number,
       rera_number,
       company_name,
+      country,
+      country_code,
     } = req.body;
     try {
       const [userTypeRows] = await pool
@@ -305,16 +307,7 @@ module.exports = {
         });
       }
       const user_type_id = userTypeRows[0].login_type_id;
-      const [cityRows] = await pool
-        .promise()
-        .query("SELECT name FROM cities WHERE id = ? LIMIT 1", [city]);
-      if (cityRows.length === 0) {
-        return res.status(404).json({
-          status: "error_city_not_found",
-          message: "City not found",
-        });
-      }
-      const city_name = cityRows[0].name;
+
       const [existingUserRows] = await pool
         .promise()
         .query("SELECT id FROM users WHERE mobile = ? LIMIT 1", [mobile]);
@@ -328,8 +321,8 @@ module.exports = {
       const created_time = moment().format("HH:mm:ss");
       const insertUserQuery = `
         INSERT INTO users 
-        (user_type, name, mobile, city, email, created_date, created_time,gst_number,rera_number,company_name)
-        VALUES (?, ?, ?, ?, ?, ?, ?,? ,?,?)
+        (user_type, name, mobile, city, email, created_date, created_time,gst_number,rera_number,company_name,country,country_code)
+        VALUES (?, ?, ?, ?, ?, ?, ?,? ,?,?,?,?)
       `;
       const [insertResult] = await pool
         .promise()
@@ -337,13 +330,15 @@ module.exports = {
           user_type_id,
           name,
           mobile,
-          city_name,
+          city,
           email,
           created_date,
           created_time,
           gst_number,
           rera_number,
           company_name,
+          country,
+          country_code,
         ]);
       const user_id = insertResult.insertId.toString();
       const accessToken = jwt.sign(
@@ -359,6 +354,8 @@ module.exports = {
         name: name,
         mobile: mobile,
         email: email,
+        country,
+        country_code,
       };
       return res.status(201).json({
         status: "success",
