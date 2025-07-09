@@ -4,6 +4,23 @@ const JWT_SECRET = "khsfskhfks983493123!@#JSFKORuiweo232";
 const bcrypt = require("bcrypt");
 const { default: axios } = require("axios");
 const moment = require("moment");
+const crypto = require("crypto");
+const ENCRYPTION_KEY = crypto
+  .createHash("sha256")
+  .update(String(JWT_SECRET))
+  .digest();
+const IV_LENGTH = 16;
+function encrypt(text) {
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv(
+    "aes-256-cbc",
+    Buffer.from(ENCRYPTION_KEY),
+    iv
+  );
+  let encrypted = cipher.update(text);
+  encrypted = Buffer.concat([encrypted, cipher.final()]);
+  return iv.toString("hex") + ":" + encrypted.toString("hex");
+}
 module.exports = {
   login: async (req, res) => {
     try {
@@ -129,10 +146,11 @@ module.exports = {
       };
       try {
         const response = await axios.get(api_url, { params });
+        const encryptedOtp = encrypt(sys_otp.toString());
         return res.status(200).json({
           status: "success",
           message: "OTP sent successfully!",
-          otp: sys_otp,
+          otp: encryptedOtp,
           apiResponse: response.data,
         });
       } catch (error) {
@@ -175,7 +193,6 @@ module.exports = {
           },
         }
       );
-      console.log("response: ", response.data, generatedOtp);
       res.json({ success: true, data: response.data, otp: generatedOtp });
     } catch (err) {
       console.error("Gallabox OTP error:", err.response?.data || err.message);
@@ -193,7 +210,6 @@ module.exports = {
       google_address,
       sub_type,
     } = req.body;
-
     const payload = {
       channelId: "67a9e14542596631a8cfc87b",
       channelType: "whatsapp",
@@ -237,34 +253,25 @@ module.exports = {
   },
   AuthLoginNew: async (req, res) => {
     const { mobile } = req.body;
-    console.log("mobile: ", mobile);
-
     try {
       const [rows] = await pool
         .promise()
         .query("SELECT * FROM users WHERE mobile = ?", [mobile]);
-
-      console.log("rows: ", rows);
-
       if (rows.length === 0) {
         return res.status(404).json({
           status: "error_user_not_found",
           message: "User not found",
         });
       }
-
       const user = rows[0];
       const user_id = user.id.toString();
-
       const accessToken = jwt.sign({ user_id }, process.env.JWT_SECRET, {
         expiresIn: "7d",
       });
-
       const user_details = {
         user_id,
         ...user,
       };
-
       return res.status(200).json({
         status: "success",
         message: "Login successful",
@@ -279,7 +286,6 @@ module.exports = {
       });
     }
   },
-
   AuthRegisterNew: async (req, res) => {
     const {
       userType,
@@ -307,7 +313,6 @@ module.exports = {
         });
       }
       const user_type_id = userTypeRows[0].login_type_id;
-
       const [existingUserRows] = await pool
         .promise()
         .query("SELECT id FROM users WHERE mobile = ? LIMIT 1", [mobile]);
