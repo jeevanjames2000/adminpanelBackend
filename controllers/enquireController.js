@@ -1,7 +1,6 @@
 const moment = require("moment");
 const pool = require("../config/db");
 const { default: axios } = require("axios");
-
 module.exports = {
   getAllEnquiries: (req, res) => {
     const query = `SELECT * FROM searched_properties ORDER BY id DESC`;
@@ -34,7 +33,7 @@ module.exports = {
     try {
       const query = `
         SELECT 
-          cs.id, cs.user_id, cs.unique_property_id, cs.fullname, cs.mobile, cs.email, cs.created_date,
+          cs.id, cs.user_id, cs.unique_property_id, cs.fullname, cs.mobile, cs.email, cs.created_date,cs.created_time,
           COALESCE(p.property_for, 'Unknown') AS property_for,
           p.property_name,
           -- Owner Details
@@ -55,10 +54,22 @@ module.exports = {
           data: [],
         });
       }
+      const formattedResults = results.map((row) => {
+        let created_time_ist = null;
+        if (row.created_time) {
+          created_time_ist = moment
+            .utc(row.created_time, "HH:mm:ss")
+            .format("HH:mm:ss");
+        }
+        return {
+          ...row,
+          created_time: created_time_ist || row.created_time,
+        };
+      });
       return res.status(200).json({
         message: "Data fetched successfully",
-        count: results.length,
-        data: results,
+        count: formattedResults.length,
+        data: formattedResults,
       });
     } catch (error) {
       console.error("Error fetching contact sellers:", error);
@@ -86,34 +97,27 @@ module.exports = {
   },
   getUserContactSellersByID: (req, res) => {
     const { user_id, unique_property_id } = req.query;
-
-    // Validate both required
     if (!user_id || !unique_property_id) {
       return res.status(400).json({
         error: "Both user_id and unique_property_id are required",
       });
     }
-
     const query = `
       SELECT * FROM contact_seller 
       WHERE user_id = ? AND unique_property_id = ?
       ORDER BY id DESC
     `;
-
     const values = [user_id, unique_property_id];
-
     pool.query(query, values, (err, results) => {
       if (err) {
         console.error("Error fetching contact sellers:", err);
         return res.status(500).json({ error: "Database error" });
       }
-
       if (results.length === 0) {
         return res.status(404).json({
           message: "No contact sellers found for the given user and property",
         });
       }
-
       return res.status(200).json({ results });
     });
   },
