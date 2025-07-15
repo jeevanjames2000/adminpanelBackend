@@ -71,6 +71,7 @@ module.exports = {
       values.push(user_type);
       countValues.push(user_type);
     }
+    sql += " ORDER BY id DESC";
     pool.query(countSql, countValues, (err, countResult) => {
       if (err) {
         console.error("Error fetching user count:", err);

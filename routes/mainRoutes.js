@@ -25,5 +25,8 @@ router.post(
   mainController.insertPlacesExcell
 );
 router.get("/getPropertyLinks", mainController.getPropertyLinks);
+router.post("/insertPropertyLink", mainController.insertPropertyLink);
+router.post("/deletePropertyLink", mainController.deletePropertyLink);
+router.post("/updatePropertyLink", mainController.updatePropertyLink);
 
 module.exports = router;

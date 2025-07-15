@@ -451,14 +451,18 @@ module.exports = {
     }
   },
   getPropertyLinks: (req, res) => {
-    pool.query("SELECT * FROM property_links", (err, results) => {
-      if (err) {
-        console.error("Error fetching property links:", err);
-        return res.status(500).json({ error: "Database query failed" });
+    pool.query(
+      "SELECT * FROM property_links ORDER BY id DESC",
+      (err, results) => {
+        if (err) {
+          console.error("Error fetching property links:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        res.status(200).json(results);
       }
-      res.status(200).json(results);
-    });
+    );
   },
+
   insertPropertyLink: (req, res) => {
     const { link_title, city, location, property_for, property_in, sub_type } =
       req.body;
