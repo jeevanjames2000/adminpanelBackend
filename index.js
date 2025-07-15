@@ -9,15 +9,16 @@ const app = express();
 const server = http.createServer(app);
 const io = socketIO(server, {
   cors: {
-    origin: process.env.CORS_ORIGINS?.split(",") || [
+    origin: [
       "http://localhost:3003",
-      "http://localhost:3000",
       "http://localhost:3002",
+      "https://admin.meetowner.in",
     ],
     methods: ["GET", "POST"],
     credentials: true,
   },
   pingTimeout: 60000,
+  transports: ["websocket"],
 });
 app.use(useragent.express());
 app.use(express.json());
@@ -28,6 +29,7 @@ app.use(
       "http://localhost:3003",
       "http://localhost:3000",
       "http://localhost:3002",
+      "https://admin.meetowner.in",
     ],
     methods: ["GET", "HEAD", "PUT", "PATCH", "POST", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],

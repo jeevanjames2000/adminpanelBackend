@@ -24,5 +24,6 @@ router.post(
   upload.single("file"),
   mainController.insertPlacesExcell
 );
+router.get("/getPropertyLinks", mainController.getPropertyLinks);
 
 module.exports = router;

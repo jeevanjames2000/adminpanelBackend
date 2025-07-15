@@ -450,4 +450,92 @@ module.exports = {
       return res.status(500).json({ error: "Failed to process Excel file" });
     }
   },
+  getPropertyLinks: (req, res) => {
+    pool.query("SELECT * FROM property_links", (err, results) => {
+      if (err) {
+        console.error("Error fetching property links:", err);
+        return res.status(500).json({ error: "Database query failed" });
+      }
+      res.status(200).json(results);
+    });
+  },
+  insertPropertyLink: (req, res) => {
+    const { link_title, city, location, property_for, property_in, sub_type } =
+      req.body;
+    if (!link_title || !city || !location || !property_for || !property_in) {
+      return res.status(400).json({ error: "All fields are required" });
+    }
+    const insertSql = `
+      INSERT INTO property_links (link_title, city, location, property_for, property_in,sub_type)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `;
+    pool.query(
+      insertSql,
+      [link_title, city, location, property_for, property_in, sub_type],
+      (err, result) => {
+        if (err) {
+          console.error("Error inserting property link:", err);
+          return res.status(500).json({ error: "Database insert failed" });
+        }
+        res.status(201).json({ message: "Property link added successfully" });
+      }
+    );
+  },
+  deletePropertyLink: (req, res) => {
+    const { id } = req.body;
+    if (!id) {
+      return res.status(400).json({ error: "Property link ID is required" });
+    }
+    const deleteSql = "DELETE FROM property_links WHERE id = ?";
+    pool.query(deleteSql, [id], (err, result) => {
+      if (err) {
+        console.error("Error deleting property link:", err);
+        return res.status(500).json({ error: "Database delete failed" });
+      }
+      if (result.affectedRows === 0) {
+        return res.status(404).json({ error: "Property link not found" });
+      }
+      res.status(200).json({ message: "Property link deleted successfully" });
+    });
+  },
+  updatePropertyLink: (req, res) => {
+    const {
+      id,
+      link_title,
+      city,
+      location,
+      property_for,
+      property_in,
+      sub_type,
+    } = req.body;
+    if (
+      !id ||
+      !link_title ||
+      !city ||
+      !location ||
+      !property_for ||
+      !property_in
+    ) {
+      return res.status(400).json({ error: "All fields are required" });
+    }
+    const updateSql = `
+      UPDATE property_links 
+      SET link_title = ?, city = ?, location = ?, property_for = ?, property_in = ?, sub_type = ?
+      WHERE id = ?
+    `;
+    pool.query(
+      updateSql,
+      [link_title, city, location, property_for, property_in, sub_type, id],
+      (err, result) => {
+        if (err) {
+          console.error("Error updating property link:", err);
+          return res.status(500).json({ error: "Database update failed" });
+        }
+        if (result.affectedRows === 0) {
+          return res.status(404).json({ error: "Property link not found" });
+        }
+        res.status(200).json({ message: "Property link updated successfully" });
+      }
+    );
+  },
 };
