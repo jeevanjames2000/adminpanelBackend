@@ -24,6 +24,7 @@ const uploadToS3 = async (buffer, mimetype, key) => {
   const url = `https://${BUCKET_NAME}.s3.${process.env.AWS_REGION}.amazonaws.com/${key}`;
   return url;
 };
+
 module.exports = {
   uploadImage: async (req, res) => {
     if (!req.file) return res.status(400).json({ message: "No file uploaded" });
@@ -357,7 +358,6 @@ module.exports = {
       res.status(500).json({ error: "Delete failed", details: err.message });
     }
   },
-
   getAllAdVideos: (req, res) => {
     const query = `
     SELECT id, video_url, ad_order, property_id, user_id, created_date

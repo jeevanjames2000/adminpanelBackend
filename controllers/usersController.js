@@ -22,14 +22,7 @@ const storage = multer.diskStorage({
   },
 });
 const upload = multer({ storage });
-const getQueryResults = (query, params) => {
-  return new Promise((resolve, reject) => {
-    pool.query(query, params, (err, results) => {
-      if (err) return reject(err);
-      resolve(results);
-    });
-  });
-};
+
 module.exports = {
   getAllUsersCount: async (req, res) => {
     pool.query(
