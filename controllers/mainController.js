@@ -25,14 +25,11 @@ module.exports = {
   },
   searchLocalities: (req, res) => {
     const { city, query } = req.query;
-
     if (!city) {
       return res.status(400).json({ error: "City is required" });
     }
-
     let sql = "";
     let params = [];
-
     if (!query) {
       sql = `
         SELECT DISTINCT locality FROM city_localities 
@@ -52,7 +49,6 @@ module.exports = {
       `;
       params = [city, searchTerm];
     }
-
     pool.query(sql, params, (err, results) => {
       if (err) {
         console.error("Database error:", err);
@@ -61,7 +57,6 @@ module.exports = {
       res.status(200).json(results);
     });
   },
-
   getTermsAndConditions: (req, res) => {
     pool.query("SELECT * FROM company_terms", (err, results) => {
       if (err) {
@@ -70,6 +65,22 @@ module.exports = {
       }
       res.status(200).json(results);
     });
+  },
+  updateTermsAndConditions: (req, res) => {
+    const { description } = req.body;
+    pool.query(
+      "UPDATE company_terms SET description = ? WHERE id = 1",
+      [description],
+      (err, results) => {
+        if (err) {
+          console.error("Error updating terms and conditions:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        res
+          .status(200)
+          .json({ message: "Terms and conditions updated successfully" });
+      }
+    );
   },
   getPrivacyPolicy: (req, res) => {
     pool.query("SELECT * FROM company_privacy", (err, results) => {
@@ -80,6 +91,47 @@ module.exports = {
       res.status(200).json(results);
     });
   },
+  updatePrivacyPolicy: (req, res) => {
+    const { description } = req.body;
+    pool.query(
+      "UPDATE company_privacy SET description = ? WHERE id = 1",
+      [description],
+      (err, results) => {
+        if (err) {
+          console.error("Error updating privacy policy:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        res
+          .status(200)
+          .json({ message: "Privacy policy updated successfully" });
+      }
+    );
+  },
+  getAbout: (req, res) => {
+    pool.query("SELECT * FROM company_about", (err, results) => {
+      if (err) {
+        console.error("Error fetching about information:", err);
+        return res.status(500).json({ error: "Database query failed" });
+      }
+      res.status(200).json(results);
+    });
+  },
+  updateAbout: (req, res) => {
+    const { description } = req.body;
+    pool.query(
+      "UPDATE company_about SET description = ? WHERE id = 1",
+      [description],
+      (err, results) => {
+        if (err) {
+          console.error("Error updating about information:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        res
+          .status(200)
+          .json({ message: "About information updated successfully" });
+      }
+    );
+  },
   getServices: (req, res) => {
     pool.query("SELECT * FROM company_services", (err, results) => {
       if (err) {
@@ -88,6 +140,20 @@ module.exports = {
       }
       res.status(200).json(results);
     });
+  },
+  updateServices: (req, res) => {
+    const { services } = req.body;
+    pool.query(
+      "UPDATE company_services SET description = ? WHERE id = 1",
+      [services],
+      (err, results) => {
+        if (err) {
+          console.error("Error updating services:", err);
+          return res.status(500).json({ error: "Database query failed" });
+        }
+        res.status(200).json({ message: "Services updated successfully" });
+      }
+    );
   },
   getCareers: (req, res) => {
     pool.query("SELECT * FROM company_careers", (err, results) => {
@@ -293,16 +359,13 @@ module.exports = {
   },
   getAllCities: (req, res) => {
     const { state } = req.query;
-
     let query =
       "SELECT DISTINCT city, state, status FROM city_localities WHERE status = 'active'";
     let params = [];
-
     if (state) {
       query += " AND state = ?";
       params.push(state);
     }
-
     pool.query(query, params, (err, results) => {
       if (err) {
         console.error("Error fetching city_localities:", err);
@@ -311,7 +374,6 @@ module.exports = {
       res.status(200).json(results);
     });
   },
-
   deletePlace: (req, res) => {
     const { state, city, locality } = req.body;
     if (!state || !city || !locality) {
@@ -371,7 +433,6 @@ module.exports = {
           console.error("Error updating place:", err);
           return res.status(500).json({ error: "Something went wrong" });
         }
-        console.log("SQL Result:", result);
         if (result.affectedRows === 0) {
           return res
             .status(404)
@@ -462,7 +523,6 @@ module.exports = {
       }
     );
   },
-
   insertPropertyLink: (req, res) => {
     const { link_title, city, location, property_for, property_in, sub_type } =
       req.body;
